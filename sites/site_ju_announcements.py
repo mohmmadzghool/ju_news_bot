@@ -1,82 +1,75 @@
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-import re
 
 def fetch_ju_announcements():
     """
-    سحب الإعلانات الرسمية فقط من جدول إعلانات الجامعة الأردنية
+    سحب الإعلانات الرسمية فقط لجامعة الأردن وتصفية روابط الموقع العامة
     """
-    url = "https://www.ju.edu.jo/ar/arabic/Lists/Announcements/All_Ann.aspx"
     announcements = []
-
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'ar,en;q=0.9'
     }
 
+    # 1. فحص صفحة إعلانات الجامعة مع تتبع وسوم شيربوينت
+    url = "https://www.ju.edu.jo/ar/arabic/Lists/Announcements/All_Ann.aspx"
+
     try:
         session = requests.Session()
-        response = session.get(url, headers=headers, timeout=25)
-        response.encoding = 'utf-8'
+        res = session.get(url, headers=headers, timeout=25)
+        res.encoding = 'utf-8'
 
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
 
-            # 1. البحث عن الجدول الخاص بقائمة إعلانات SharePoint
-            # SharePoint يعطي صفوف الجدول صنف ms-itmhover أو ms-listviewtable
-            table = soup.find('table', {'class': lambda c: c and ('ms-listviewtable' in c or 'ms-summarycustombody' in c)})
-            container = table if table else soup
-
-            # 2. البحث عن الروابط الموجهة لصفحة تفاصيل الإعلان (DispForm.aspx?ID=)
-            links = container.find_all('a', href=True)
-
-            for a in links:
+            # البحث عن عناصر الإعلانات في جداول شيربوينت
+            for a in soup.find_all('a', href=True):
                 href = a['href']
                 title = a.get_text(strip=True)
 
-                # الشرط الصارم للإعلان: رابط شيربوينت لعرض العنصر DispForm.aspx ومعه معرف رقمي
-                if "DispForm.aspx" in href and "ID=" in href:
-                    # استخراج رقم الإعلان الفريد من الرابط (مثال: ID=123)
-                    id_match = re.search(r'ID=(\d+)', href, re.IGNORECASE)
-                    if id_match and title and len(title) > 3:
-                        item_id_num = id_match.group(1)
-                        full_url = urljoin("https://www.ju.edu.jo", href)
-                        unique_id = f"ju_official_ann_{item_id_num}"
+                # التحقق من أن الرابط يخص تفاصيل إعلان في القائمة
+                is_ann_link = ("DispForm.aspx" in href) or ("/Lists/Announcements/" in href and href.endswith(".aspx"))
 
-                        if not any(item['id'] == unique_id for item in announcements):
+                if is_ann_link and len(title) > 5 and "All_Ann" not in href:
+                    full_link = urljoin("https://www.ju.edu.jo", href)
+                    
+                    # استخراج معرف فريد للإعلان
+                    unique_id = full_link.lower().split("&")[0]
+
+                    if not any(item['id'] == unique_id for item in announcements):
+                        announcements.append({
+                            'source': 'إعلانات الجامعة الأردنية',
+                            'id': unique_id,
+                            'title': title,
+                            'link': full_link
+                        })
+
+            # إذا كانت الصفحة تستخدم تغذية RSS مدمجة للقائمة
+            if not announcements:
+                rss_url = "https://www.ju.edu.jo/ar/arabic/_layouts/15/listfeed.aspx?List=%7B5A0C6B59-D2BF-4C1F-9E04-0C64883A75E4%7D"
+                rss_res = session.get(rss_url, headers=headers, timeout=15)
+                if rss_res.status_code == 200:
+                    rss_soup = BeautifulSoup(rss_res.content, 'xml')
+                    items = rss_soup.find_all('item')
+                    for it in items:
+                        t = it.find('title')
+                        l = it.find('link')
+                        g = it.find('guid')
+                        if t and l:
+                            item_id = g.text.strip() if g else l.text.strip()
                             announcements.append({
-                                'source': 'إعلانات الجامعة الأردنية الرسمية',
-                                'id': unique_id,
-                                'title': title,
-                                'link': full_url
+                                'source': 'إعلانات الجامعة الأردنية',
+                                'id': f"ju_rss_{item_id}",
+                                'title': t.text.strip(),
+                                'link': l.text.strip()
                             })
 
-            # في حال لم يجد عبر DispForm (إذا كان شيربوينت يعرض العناوين داخل خلايا ms-vb أو ms-vb2)
-            if not announcements:
-                for td in soup.find_all('td', {'class': lambda c: c and 'ms-vb' in c}):
-                    a_tag = td.find('a', href=True)
-                    if a_tag:
-                        href = a_tag['href']
-                        title = a_tag.get_text(strip=True)
-                        if "ID=" in href and len(title) > 4:
-                            id_match = re.search(r'ID=(\d+)', href, re.IGNORECASE)
-                            item_id_num = id_match.group(1) if id_match else href
-                            full_url = urljoin("https://www.ju.edu.jo", href)
-                            unique_id = f"ju_official_ann_{item_id_num}"
-
-                            if not any(item['id'] == unique_id for item in announcements):
-                                announcements.append({
-                                    'source': 'إعلانات الجامعة الأردنية الرسمية',
-                                    'id': unique_id,
-                                    'title': title,
-                                    'link': full_url
-                                })
-
-            print(f"تم استخراج {len(announcements)} إعلان رسمي فعلي من الجدول.")
+            print(f"تم العثور على {len(announcements)} إعلان رسمي.")
 
     except Exception as e:
-        print(f"خطأ أثناء فحص إعلانات الجامعة: {e}")
+        print(f"خطأ أثناء فحص الإعلانات: {e}")
 
-    return announcements
+    # إعادة أحدث الإعلانات فقط
+    return announcements[:10]
