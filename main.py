@@ -1,8 +1,20 @@
 import os
 from sites.site_ju_announcements import fetch_ju_announcements
 from sites.site_ju_registration import fetch_ju_registration_announcements
-from telegram_notifier import send_telegram_message
+import telegram_notifier
 from storage import load_sent_ids, save_sent_ids
+
+# تحديد دالة الإرسال المتوفرة داخل telegram_notifier تلقائياً
+def notify(msg):
+    if hasattr(telegram_notifier, 'send_telegram_message'):
+        return telegram_notifier.send_telegram_message(msg)
+    elif hasattr(telegram_notifier, 'send_telegram_notification'):
+        return telegram_notifier.send_telegram_notification(msg)
+    elif hasattr(telegram_notifier, 'send_message'):
+        return telegram_notifier.send_message(msg)
+    elif hasattr(telegram_notifier, 'send_notification'):
+        return telegram_notifier.send_notification(msg)
+    return False
 
 def main():
     print("==================================================")
@@ -13,7 +25,6 @@ def main():
     new_sent_ids = list(sent_ids)
     new_items_count = 0
 
-    # قائمة دوال الجلب من مختلف المواقع
     fetchers = [
         fetch_ju_announcements,
         fetch_ju_registration_announcements
@@ -31,7 +42,7 @@ def main():
                         f"📌 {item['title']}\n\n"
                         f"🔗 <a href='{item['link']}'>اضغط هنا لقراءة التفاصيل</a>"
                     )
-                    success = send_telegram_message(msg)
+                    success = notify(msg)
                     if success:
                         print("-> تم إرسال الإشعار إلى تلجرام بنجاح.")
                         new_sent_ids.append(item_id)
@@ -39,7 +50,6 @@ def main():
         except Exception as e:
             print(f"خطأ أثناء تشغيل الفاحص: {e}")
 
-    # حفظ السجل المحدث
     if new_items_count > 0:
         save_sent_ids(new_sent_ids)
 
