@@ -1,18 +1,14 @@
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+import re
 
 def fetch_ju_announcements():
     """
-    سحب أحدث الإعلانات من صفحة إعلانات الجامعة الأردنية
+    سحب الإعلانات الرسمية فقط من جدول إعلانات الجامعة الأردنية
     """
+    url = "https://www.ju.edu.jo/ar/arabic/Lists/Announcements/All_Ann.aspx"
     announcements = []
-    
-    # 1. تجربة جلب البيانات عبر SharePoint RSS / REST إذا توفر
-    endpoints = [
-        "https://www.ju.edu.jo/ar/arabic/Lists/Announcements/All_Ann.aspx",
-        "https://www.ju.edu.jo/ar/arabic/_layouts/15/listfeed.aspx?List=%7B5A0C6B59-D2BF-4C1F-9E04-0C64883A75E4%7D"
-    ]
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -20,47 +16,65 @@ def fetch_ju_announcements():
         'Accept-Language': 'ar,en;q=0.9'
     }
 
-    url = "https://www.ju.edu.jo/ar/arabic/Lists/Announcements/All_Ann.aspx"
-
     try:
         session = requests.Session()
         response = session.get(url, headers=headers, timeout=25)
         response.encoding = 'utf-8'
 
-        print(f"كود الاستجابة من الجامعة الأردنية: {response.status_code}")
-
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
 
-            # البحث عن الصفوف أو الجداول أو الروابط التي تحوي نصوص إعلانات
-            for a in soup.find_all('a', href=True):
-                title = a.get_text(strip=True)
+            # 1. البحث عن الجدول الخاص بقائمة إعلانات SharePoint
+            # SharePoint يعطي صفوف الجدول صنف ms-itmhover أو ms-listviewtable
+            table = soup.find('table', {'class': lambda c: c and ('ms-listviewtable' in c or 'ms-summarycustombody' in c)})
+            container = table if table else soup
+
+            # 2. البحث عن الروابط الموجهة لصفحة تفاصيل الإعلان (DispForm.aspx?ID=)
+            links = container.find_all('a', href=True)
+
+            for a in links:
                 href = a['href']
+                title = a.get_text(strip=True)
 
-                # تصفية الروابط العامة (مثل القوائم والرئيسية) والتركيز على نصوص الإعلانات الفعلية
-                ignore_words = [
-                    "الرئيسية", "عن الأردنية", "البحث العلمي", "القبول والتسجيل", 
-                    "الخدمات الإدارية", "روابط سريعة", "English", "اتصل بنا", "المزيد"
-                ]
+                # الشرط الصارم للإعلان: رابط شيربوينت لعرض العنصر DispForm.aspx ومعه معرف رقمي
+                if "DispForm.aspx" in href and "ID=" in href:
+                    # استخراج رقم الإعلان الفريد من الرابط (مثال: ID=123)
+                    id_match = re.search(r'ID=(\d+)', href, re.IGNORECASE)
+                    if id_match and title and len(title) > 3:
+                        item_id_num = id_match.group(1)
+                        full_url = urljoin("https://www.ju.edu.jo", href)
+                        unique_id = f"ju_official_ann_{item_id_num}"
 
-                if len(title) >= 12 and not any(w in title for w in ignore_words):
-                    full_url = urljoin("https://www.ju.edu.jo", href)
-                    
-                    # تمييز الإعلان إما بالرابط أو بعنوانه
-                    ann_id = f"ju_ann_{hash(title)}"
+                        if not any(item['id'] == unique_id for item in announcements):
+                            announcements.append({
+                                'source': 'إعلانات الجامعة الأردنية الرسمية',
+                                'id': unique_id,
+                                'title': title,
+                                'link': full_url
+                            })
 
-                    if not any(item['id'] == ann_id for item in announcements):
-                        announcements.append({
-                            'source': 'إعلانات الجامعة الأردنية',
-                            'id': ann_id,
-                            'title': title,
-                            'link': full_url
-                        })
+            # في حال لم يجد عبر DispForm (إذا كان شيربوينت يعرض العناوين داخل خلايا ms-vb أو ms-vb2)
+            if not announcements:
+                for td in soup.find_all('td', {'class': lambda c: c and 'ms-vb' in c}):
+                    a_tag = td.find('a', href=True)
+                    if a_tag:
+                        href = a_tag['href']
+                        title = a_tag.get_text(strip=True)
+                        if "ID=" in href and len(title) > 4:
+                            id_match = re.search(r'ID=(\d+)', href, re.IGNORECASE)
+                            item_id_num = id_match.group(1) if id_match else href
+                            full_url = urljoin("https://www.ju.edu.jo", href)
+                            unique_id = f"ju_official_ann_{item_id_num}"
 
-                        if len(announcements) >= 5:
-                            break
+                            if not any(item['id'] == unique_id for item in announcements):
+                                announcements.append({
+                                    'source': 'إعلانات الجامعة الأردنية الرسمية',
+                                    'id': unique_id,
+                                    'title': title,
+                                    'link': full_url
+                                })
 
-            print(f"تم العثور على {len(announcements)} إعلان مرشح.")
+            print(f"تم استخراج {len(announcements)} إعلان رسمي فعلي من الجدول.")
 
     except Exception as e:
         print(f"خطأ أثناء فحص إعلانات الجامعة: {e}")
