@@ -5,7 +5,7 @@ import re
 
 def fetch_ju_registration_announcements():
     """
-    سحب إعلانات وحدة القبول والتسجيل (بكالوريوس)
+    سحب إعلانات وحدة القبول والتسجيل الرسمية عبر نمط Reg_DispAnn.aspx
     """
     url = "https://registration.ju.edu.jo/Lists/UnitAnnouncements/Reg_AllAnn.aspx"
     announcements = []
@@ -23,14 +23,12 @@ def fetch_ju_registration_announcements():
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
 
-            # البحث عن روابط الإعلانات التابعة لقائمة UnitAnnouncements
             for a in soup.find_all('a', href=True):
                 href = a['href']
                 title = a.get_text(strip=True)
 
-                is_target_link = ("UnitAnnouncements" in href or "Disp_Ann.aspx" in href or "DispForm.aspx" in href)
-                
-                if is_target_link and "ID=" in href and len(title) > 3:
+                # النمط الدقيق المكتشف لصفحة إعلانات القبول والتسجيل
+                if "Reg_DispAnn.aspx" in href and "ID=" in href and len(title) > 3:
                     full_link = urljoin("https://registration.ju.edu.jo/Lists/UnitAnnouncements/", href)
                     
                     id_match = re.search(r'ID=(\d+)', href, re.IGNORECASE)
@@ -44,7 +42,7 @@ def fetch_ju_registration_announcements():
                             'link': full_link
                         })
 
-            print(f"تم جلب {len(announcements)} إعلان من القبول والتسجيل.")
+            print(f"تم بنجاح جلب {len(announcements)} إعلان من القبول والتسجيل.")
 
     except Exception as e:
         print(f"خطأ أثناء فحص إعلانات القبول والتسجيل: {e}")
