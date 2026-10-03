@@ -4,17 +4,24 @@ from urllib.parse import urljoin
 
 def fetch_ju_announcements():
     """
-    سحب الإعلانات الرسمية فقط لجامعة الأردن وتصفية روابط الموقع العامة
+    سحب الإعلانات الرسمية فقط وتصفية القوائم الثابتة
     """
+    url = "https://www.ju.edu.jo/ar/arabic/Lists/Announcements/All_Ann.aspx"
     announcements = []
+
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'ar,en;q=0.9'
     }
 
-    # 1. فحص صفحة إعلانات الجامعة مع تتبع وسوم شيربوينت
-    url = "https://www.ju.edu.jo/ar/arabic/Lists/Announcements/All_Ann.aspx"
+    # قائمة الكلمات والروابط الثابتة التي يجب تجاهلها تماماً
+    ignored_keywords = [
+        "الرئيسية", "عن الأردنية", "البحث العلمي", "القبول والتسجيل", 
+        "الخدمات الإدارية", "روابط سريعة", "English", "اتصل بنا", "المزيد",
+        "كيفية الالتحاق", "التسجيل الذاتي", "نظام إدارة المحتوى", "مستشفى الجامعة",
+        "أخبار الجامعة", "البريد الإلكتروني", "بوابة الطالب", "بوابة الموظف",
+        "المكتبة", "الكليات", "المراكز", "العمادات", "خريطة الموقع"
+    ]
 
     try:
         session = requests.Session()
@@ -24,52 +31,33 @@ def fetch_ju_announcements():
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
 
-            # البحث عن عناصر الإعلانات في جداول شيربوينت
             for a in soup.find_all('a', href=True):
-                href = a['href']
                 title = a.get_text(strip=True)
+                href = a['href']
 
-                # التحقق من أن الرابط يخص تفاصيل إعلان في القائمة
-                is_ann_link = ("DispForm.aspx" in href) or ("/Lists/Announcements/" in href and href.endswith(".aspx"))
+                # شروط الإعلان الحقيقي:
+                # 1. عنوان كافي (أكثر من 15 حرف) ليكون جملة إعلان وليس زر أو رابط قائمة
+                # 2. ألا يحتوي على أي كلمة من الكلمات الثابتة المستبعدة
+                # 3. ألا يكون رابط فارغ أو مجرد علامة #
+                if len(title) >= 15 and not any(word in title for word in ignored_keywords):
+                    if not href.startswith('#') and not href.startswith('javascript:'):
+                        full_link = urljoin("https://www.ju.edu.jo", href)
+                        
+                        # نعتمد عنوان الإعلان كمعرّف لمنع تكراره
+                        ann_id = f"ju_{title[:30]}"
 
-                if is_ann_link and len(title) > 5 and "All_Ann" not in href:
-                    full_link = urljoin("https://www.ju.edu.jo", href)
-                    
-                    # استخراج معرف فريد للإعلان
-                    unique_id = full_link.lower().split("&")[0]
-
-                    if not any(item['id'] == unique_id for item in announcements):
-                        announcements.append({
-                            'source': 'إعلانات الجامعة الأردنية',
-                            'id': unique_id,
-                            'title': title,
-                            'link': full_link
-                        })
-
-            # إذا كانت الصفحة تستخدم تغذية RSS مدمجة للقائمة
-            if not announcements:
-                rss_url = "https://www.ju.edu.jo/ar/arabic/_layouts/15/listfeed.aspx?List=%7B5A0C6B59-D2BF-4C1F-9E04-0C64883A75E4%7D"
-                rss_res = session.get(rss_url, headers=headers, timeout=15)
-                if rss_res.status_code == 200:
-                    rss_soup = BeautifulSoup(rss_res.content, 'xml')
-                    items = rss_soup.find_all('item')
-                    for it in items:
-                        t = it.find('title')
-                        l = it.find('link')
-                        g = it.find('guid')
-                        if t and l:
-                            item_id = g.text.strip() if g else l.text.strip()
+                        if not any(item['title'] == title for item in announcements):
                             announcements.append({
                                 'source': 'إعلانات الجامعة الأردنية',
-                                'id': f"ju_rss_{item_id}",
-                                'title': t.text.strip(),
-                                'link': l.text.strip()
+                                'id': ann_id,
+                                'title': title,
+                                'link': full_link
                             })
 
-            print(f"تم العثور على {len(announcements)} إعلان رسمي.")
+            print(f"تم جلب {len(announcements)} إعلان رسمي فعلي.")
 
     except Exception as e:
         print(f"خطأ أثناء فحص الإعلانات: {e}")
 
-    # إعادة أحدث الإعلانات فقط
-    return announcements[:10]
+    # نأخذ أحدث 5 إعلانات مطابقة
+    return announcements[:5]
