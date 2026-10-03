@@ -1,5 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
 def fetch_ju_announcements():
     """
@@ -9,46 +10,39 @@ def fetch_ju_announcements():
     announcements = []
 
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8'
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=20)
+        response = requests.get(url, headers=headers, timeout=25)
         response.encoding = 'utf-8'
 
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
 
-            # استخراج الروابط الخاصة بالإعلانات من الصفحة
-            # روابط إعلانات الجامعة في شيربوينت تحتوي على DispForm.aspx?ID=
-            links = soup.find_all('a', href=True)
-
-            seen_ids = set()
-
-            for a in links:
-                href = a['href']
+            # البحث عن جميع الروابط داخل الصفحة
+            for a in soup.find_all('a', href=True):
                 title = a.get_text(strip=True)
+                href = a['href']
 
-                if "DispForm.aspx?ID=" in href and title:
-                    # تحويل الرابط إلى رابط كامل إذا كان ناقصاً
-                    if not href.startswith('http'):
-                        full_url = "https://www.ju.edu.jo" + href
-                    else:
-                        full_url = href
+                # التأكد أن الرابط يخص إعلان وفيه عنوان واضح
+                if "DispForm.aspx" in href and len(title) > 8:
+                    full_url = urljoin("https://www.ju.edu.jo", href)
 
-                    # استخراج رقم الإعلان الفريد من الرابط
-                    ann_id = full_url.split("ID=")[-1].split("&")[0]
+                    # استخراج المعرف الخاص بالإعلان
+                    ann_id = full_url.lower()
 
-                    if ann_id not in seen_ids:
-                        seen_ids.add(ann_id)
+                    # تجنب تكرار نفس الرابط في القائمة المستخرجة
+                    if not any(item['id'] == ann_id for item in announcements):
                         announcements.append({
                             'source': 'إعلانات الجامعة الأردنية',
-                            'id': f"ju_ann_{ann_id}",
+                            'id': ann_id,
                             'title': title,
                             'link': full_url
                         })
 
-                        # نكتفي بأحدث 5 إعلانات في كل فحص
+                        # نأخذ أحدث 5 إعلانات
                         if len(announcements) >= 5:
                             break
 
