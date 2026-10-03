@@ -1,0 +1,42 @@
+name: University News Monitor
+
+on:
+  schedule:
+    # يعمل تلقائياً كل 5 دقائق في السحاب
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # يتيح لك تشغيله يدوياً بأي وقت لتجربته
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: تحميل الكود
+        uses: actions/checkout@v4
+
+      - name: إعداد بيئة بايثون
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: تثبيت المكتبات المطلوبة
+        run: |
+          pip install -r requirements.txt
+
+      - name: تشغيل فاحص الأخبار
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python main.py
+
+      - name: حفظ سجل الإعلانات لمنع التكرار
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add sent_news_history.json || true
+          git diff --staged --quiet || git commit -m "تحديث سجل الإعلانات المرسلة"
+          git push || true
