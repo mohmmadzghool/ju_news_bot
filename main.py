@@ -135,59 +135,37 @@ def fetch_ju_student_affairs_web():
     return news_items[:5]
 
 def fetch_ju_student_affairs_facebook():
-    """سحب أحدث منشورات صفحة فيسبوك لعمادة شؤون الطلبة عبر الكوكيز"""
+    """سحب أحدث منشورات صفحة عمادة شؤون الطلبة عبر بوابة العرض وكوكيز الحساب"""
     c_user = os.environ.get("FB_C_USER", "").strip()
     xs = os.environ.get("FB_XS", "").strip()
-    
-    if not c_user or not xs:
-        print("[فحص فيسبوك]: كوكيز فيسبوك (FB_C_USER أو FB_XS) غير متوفرة في بيئة العمل.")
-        return []
-
-    print("[فحص فيسبوك]: جاري الاتصال بفيسبوك باستخدام الكوكيز...")
-    url = "https://mbasic.facebook.com/StudentAffairsJU"
     posts = []
-    cookies = {
-        "c_user": c_user,
-        "xs": xs,
-        "locale": "ar_AR"
-    }
+
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept-Language": "ar,en;q=0.9",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-User": "?1",
-        "Sec-Fetch-Dest": "document"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Accept-Language": "ar,ar-JO;q=0.9,en;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     }
 
+    # 1. المحاولة الأولى: بوابة تضمين الصفحة العامة الرسمية
     try:
-        session = requests.Session()
-        session.cookies.update(cookies)
-        res = session.get(url, headers=headers, timeout=25)
-        res.encoding = 'utf-8'
-
-        if res.status_code == 200 and "login" not in res.url.lower():
-            soup = BeautifulSoup(res.text, "html.parser")
+        plugin_url = "https://www.facebook.com/plugins/page.php?href=https%3A%2F%2Fwww.facebook.com%2FStudentAffairsJU&tabs=timeline&locale=ar_AR"
+        res_plugin = requests.get(plugin_url, headers=headers, timeout=20)
+        if res_plugin.status_code == 200:
+            soup = BeautifulSoup(res_plugin.text, "html.parser")
+            containers = soup.find_all("div", class_=re.compile(r'_1xnd|_4-u2|userContent'))
             
-            # البحث عن عناصر المقالات أو أوعية المنشورات في mbasic
-            articles = soup.find_all("article") or soup.find_all("div", role="article")
-            if not articles:
-                articles = soup.find_all("div", id=re.compile(r'u_0_|story_'))
-
-            for art in articles[:5]:
-                text_content = art.get_text(" ", strip=True)
-                clean_lines = [l for l in text_content.split(" ") if l not in ["إعجاب", "تعليق", "مشاركة", "Like", "Comment", "Share"]]
+            for container in containers:
+                text_val = container.get_text(" ", strip=True)
+                clean_lines = [l for l in text_val.split(" ") if l not in ["إعجاب", "تعليق", "مشاركة", "Like", "Share", "Comment"]]
                 post_text = " ".join(clean_lines).strip()
-
-                if len(post_text) > 30:
-                    link = "https://www.facebook.com/StudentAffairsJU"
-                    for a in art.find_all("a", href=True):
-                        href = a['href']
-                        if any(k in href for k in ["story.php", "fbid=", "/posts/", "/photos/"]):
-                            link = f"https://www.facebook.com{href}" if href.startswith("/") else href
-                            break
-
+                
+                if len(post_text) > 35:
                     post_id = "fb_sa_" + hashlib.md5(post_text[:100].encode('utf-8')).hexdigest()[:12]
+                    link = "https://www.facebook.com/StudentAffairsJU"
+                    for a in container.find_all("a", href=True):
+                        if any(k in a['href'] for k in ["/posts/", "/photos/", "story.php", "fbid="]):
+                            link = f"https://www.facebook.com{a['href']}" if a['href'].startswith("/") else a['href']
+                            break
                     if not any(p['id'] == post_id for p in posts):
                         posts.append({
                             'source': 'فيسبوك: عمادة شؤون الطلبة',
@@ -195,12 +173,38 @@ def fetch_ju_student_affairs_facebook():
                             'title': post_text[:140] + ("..." if len(post_text) > 140 else ""),
                             'link': link
                         })
-            print(f"[فحص فيسبوك]: تم بنجاح استخراج {len(posts)} منشور.")
-        else:
-            print(f"[فحص فيسبوك]: فشل الوصول للصفحة، الرابط المحول إليه: {res.url}")
     except Exception as e:
-        print(f"[فحص فيسبوك]: حدث خطأ أثناء الاتصال: {e}")
+        print(f"[فحص فيسبوك (بوابة التضمين)]: {e}")
 
+    # 2. المحاولة الثانية: استخراج المنشورات عبر كوكيز الحساب من بيانات الصفحة المباشرة
+    if not posts and c_user and xs:
+        try:
+            print("[فحص فيسبوك]: استخدام جلسة الكوكيز لقراءة المنشورات المحدثة...")
+            session = requests.Session()
+            session.cookies.update({"c_user": c_user, "xs": xs, "locale": "ar_AR"})
+            res_fb = session.get("https://m.facebook.com/StudentAffairsJU", headers=headers, timeout=20)
+            
+            matches = re.findall(r'"message":\s*\{\s*"text":\s*"((?:\\.|[^"\\])+)"\}', res_fb.text)
+            for m in matches[:5]:
+                try:
+                    decoded_text = json.loads(f'"{m}"')
+                except Exception:
+                    decoded_text = m.encode().decode('unicode_escape', errors='ignore')
+                
+                clean_text = re.sub(r'\s+', ' ', decoded_text).strip()
+                if len(clean_text) > 35:
+                    post_id = "fb_sa_" + hashlib.md5(clean_text[:100].encode('utf-8')).hexdigest()[:12]
+                    if not any(p['id'] == post_id for p in posts):
+                        posts.append({
+                            'source': 'فيسبوك: عمادة شؤون الطلبة',
+                            'id': post_id,
+                            'title': clean_text[:140] + ("..." if len(clean_text) > 140 else ""),
+                            'link': "https://www.facebook.com/StudentAffairsJU"
+                        })
+        except Exception as e:
+            print(f"[فحص فيسبوك (كوكيز)]: {e}")
+
+    print(f"[فحص فيسبوك]: تم بنجاح استخراج {len(posts)} منشور.")
     return posts[:5]
 
 def main():
