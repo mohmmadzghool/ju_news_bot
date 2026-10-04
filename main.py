@@ -2,6 +2,7 @@ from sites.site_ju_announcements import fetch_ju_announcements
 from sites.site_ju_registration import fetch_ju_registration_announcements
 from sites.site_ju_grad_studies import fetch_ju_grad_studies_announcements
 from sites.site_ju_student_affairs import fetch_ju_student_affairs_announcements
+from sites.site_ju_community_service import fetch_ju_community_service_announcements
 from telegram_notifier import send_telegram_alert
 from storage import load_sent_ids, save_sent_ids
 
@@ -18,7 +19,8 @@ def main():
         fetch_ju_announcements,
         fetch_ju_registration_announcements,
         fetch_ju_grad_studies_announcements,
-        fetch_ju_student_affairs_announcements
+        fetch_ju_student_affairs_announcements,
+        fetch_ju_community_service_announcements
     ]
 
     for fetcher in fetchers:
