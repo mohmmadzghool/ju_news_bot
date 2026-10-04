@@ -1,18 +1,13 @@
-name: University News Monitor
+name: فاحص إعلانات الجامعة الأردنية
 
 on:
   schedule:
-    # يعمل تلقائياً كل 5 دقائق في السحاب
     - cron: '*/5 * * * *'
-  workflow_dispatch: # يتيح لك تشغيله يدوياً بأي وقت لتجربته
-
-permissions:
-  contents: write
+  workflow_dispatch:
 
 jobs:
-  check-and-notify:
+  check-news:
     runs-on: ubuntu-latest
-
     steps:
       - name: تحميل الكود
         uses: actions/checkout@v4
@@ -20,7 +15,7 @@ jobs:
       - name: إعداد بيئة بايثون
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
       - name: تثبيت المكتبات المطلوبة
         run: |
@@ -30,8 +25,9 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          python main.py
+          FB_C_USER: ${{ secrets.FB_C_USER }}
+          FB_XS: ${{ secrets.FB_XS }}
+        run: python main.py
 
       - name: حفظ سجل الإعلانات لمنع التكرار
         run: |
