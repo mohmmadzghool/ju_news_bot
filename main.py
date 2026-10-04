@@ -1,4 +1,9 @@
 import os
+import sys
+
+# ضمان تعرف بايثون على مجلد المشروع ومجلد sites في سيرفر GitHub
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import json
 import requests
 from sites.site_ju_official import fetch_ju_official_news
@@ -62,7 +67,6 @@ def main():
     history = load_history()
     all_current_news = []
     
-    # قائمة بجميع دوال فحص المواقع وفيسبوك
     checkers = [
         fetch_ju_official_news,
         fetch_ju_reg_bachelor_news,
@@ -94,7 +98,6 @@ def main():
                 new_history.append(item_id)
                 sent_count += 1
                 
-    # الاحتفاظ بآخر 1000 معرف إعلان لتجنب تضخم الملف
     if len(new_history) > 1000:
         new_history = new_history[-1000:]
         
