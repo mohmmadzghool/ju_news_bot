@@ -134,65 +134,60 @@ def fetch_ju_student_affairs_facebook():
     
     posts = []
     headers = {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "ar,en-US;q=0.9,en;q=0.8"
+        "Accept-Language": "ar,en;q=0.9"
     }
 
     if not c_user or not xs:
-        print("[فحص فيسبوك]: لم يتم العثور على الكوكيز FB_C_USER أو FB_XS.", flush=True)
+        print("[فحص فيسبوك]: الكوكيز غير متوفرة.", flush=True)
         return []
 
-    print("[فحص فيسبوك]: بدء الاتصال بفيسبوك عبر الكوكيز...", flush=True)
-    url = "https://mbasic.facebook.com/StudentAffairsJU"
-    cookies = {"c_user": c_user, "xs": xs, "locale": "ar_AR"}
+    print("[فحص فيسبوك]: بدء الاتصال بفيسبوك...", flush=True)
+    session = requests.Session()
+    session.cookies.update({
+        "c_user": c_user,
+        "xs": xs,
+        "locale": "ar_AR"
+    })
 
     try:
-        session = requests.Session()
-        session.cookies.update(cookies)
-        res = session.get(url, headers=headers, timeout=25)
+        url = "https://mbasic.facebook.com/StudentAffairsJU"
+        res = session.get(url, headers=headers, timeout=20)
         res.encoding = 'utf-8'
+        soup = BeautifulSoup(res.text, "html.parser")
+        
+        page_title = soup.title.string if soup.title else "بدون عنوان"
+        print(f"[فحص فيسبوك]: عنوان الصفحة المستلمة: ({page_title})", flush=True)
 
-        if res.status_code == 200 and "login" not in res.url.lower():
-            soup = BeautifulSoup(res.text, "html.parser")
-            articles = soup.find_all("article") or soup.find_all("div", role="article")
-            if not articles:
-                articles = soup.find_all("div", id=re.compile(r'u_0_|story_'))
-
-            for art in articles[:8]:
-                text_content = art.get_text(" ", strip=True)
-                for stop_word in ["إعجاب", "تعليق", "مشاركة", "Like", "Comment", "Share", "·"]:
-                    text_content = text_content.replace(stop_word, "")
+        for div in soup.find_all(['div', 'article']):
+            text = div.get_text(" ", strip=True)
+            for w in ["إعجاب", "تعليق", "مشاركة", "Like", "Comment", "Share"]:
+                text = text.replace(w, "")
+            
+            if 30 < len(text) < 500 and not any(p['title'] == text[:140] for p in posts):
+                link = "https://www.facebook.com/StudentAffairsJU"
+                for a in div.find_all('a', href=True):
+                    h = a['href']
+                    if any(k in h for k in ["story.php", "fbid=", "/posts/", "/photos/"]):
+                        link = f"https://www.facebook.com{h}" if h.startswith("/") else h
+                        break
                 
-                clean_lines = [w for w in text_content.split() if len(w) > 1]
-                post_text = " ".join(clean_lines).strip()
+                post_id = "fb_sa_" + hashlib.md5(text[:80].encode('utf-8')).hexdigest()[:12]
+                posts.append({
+                    'source': 'فيسبوك: عمادة شؤون الطلبة',
+                    'id': post_id,
+                    'title': text[:140] + ("..." if len(text) > 140 else ""),
+                    'link': link
+                })
+                if len(posts) >= 5:
+                    break
 
-                if len(post_text) >= 25:
-                    link = "https://www.facebook.com/StudentAffairsJU"
-                    for a in art.find_all("a", href=True):
-                        href = a['href']
-                        if any(k in href for k in ["story.php", "fbid=", "/posts/", "/photos/"]):
-                            if href.startswith("/"):
-                                link = f"https://www.facebook.com{href}"
-                            else:
-                                link = href
-                            break
-
-                    post_id = "fb_sa_" + hashlib.md5(post_text[:80].encode('utf-8')).hexdigest()[:12]
-                    if not any(p['id'] == post_id for p in posts):
-                        posts.append({
-                            'source': 'فيسبوك: عمادة شؤون الطلبة',
-                            'id': post_id,
-                            'title': post_text[:140] + ("..." if len(post_text) > 140 else ""),
-                            'link': link
-                        })
-            print(f"[فحص فيسبوك]: تم بنجاح استخراج {len(posts)} منشور.", flush=True)
-        else:
-            print(f"[فحص فيسبوك]: تم تحويل الصفحة (URL: {res.url[:40]}...)", flush=True)
+        print(f"[فحص فيسبوك]: تم بنجاح استخراج {len(posts)} منشور.", flush=True)
     except Exception as e:
-        print(f"[فحص فيسبوك]: خطأ في الاتصال: {e}", flush=True)
+        print(f"[فحص فيسبوك]: خطأ أثناء الفحص: {e}", flush=True)
 
-    return posts[:5]
+    return posts
 
 def main():
     print("==================================================", flush=True)
