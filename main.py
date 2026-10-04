@@ -29,7 +29,7 @@ def send_telegram_message(source, title, link):
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     
     if not token or not chat_id:
-        print(f"[تنبيه تجريبي] {source} -> {title[:50]}...")
+        print(f"[تنبيه] ({source}) -> {title[:50]}... (المفاتيح غير ممررة)")
         return False
         
     text = (
@@ -135,31 +135,41 @@ def fetch_ju_student_affairs_web():
     return news_items[:5]
 
 def fetch_ju_student_affairs_facebook():
-    """سحب منشورات صفحة فيسبوك لعمادة شؤون الطلبة"""
+    """سحب أحدث منشورات صفحة فيسبوك لعمادة شؤون الطلبة عبر الكوكيز"""
     c_user = os.environ.get("FB_C_USER", "").strip()
     xs = os.environ.get("FB_XS", "").strip()
     
     if not c_user or not xs:
-        # إذا لم يتم تعيين المتغيرات البيئية نستخدم قيم الاختبار المحلي
-        print("[ملاحظة فيسبوك] يتم فحص فيسبوك بالقيم المتاحة...")
-        
+        print("[فحص فيسبوك]: كوكيز فيسبوك (FB_C_USER أو FB_XS) غير متوفرة في بيئة العمل.")
+        return []
+
+    print("[فحص فيسبوك]: جاري الاتصال بفيسبوك باستخدام الكوكيز...")
     url = "https://mbasic.facebook.com/StudentAffairsJU"
     posts = []
-    cookies = {"c_user": c_user, "xs": xs} if (c_user and xs) else {}
+    cookies = {
+        "c_user": c_user,
+        "xs": xs,
+        "locale": "ar_AR"
+    }
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept-Language": "ar,en;q=0.9"
+        "Accept-Language": "ar,en;q=0.9",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-User": "?1",
+        "Sec-Fetch-Dest": "document"
     }
 
     try:
         session = requests.Session()
-        if cookies:
-            session.cookies.update(cookies)
+        session.cookies.update(cookies)
         res = session.get(url, headers=headers, timeout=25)
         res.encoding = 'utf-8'
 
         if res.status_code == 200 and "login" not in res.url.lower():
             soup = BeautifulSoup(res.text, "html.parser")
+            
+            # البحث عن عناصر المقالات أو أوعية المنشورات في mbasic
             articles = soup.find_all("article") or soup.find_all("div", role="article")
             if not articles:
                 articles = soup.find_all("div", id=re.compile(r'u_0_|story_'))
@@ -172,8 +182,9 @@ def fetch_ju_student_affairs_facebook():
                 if len(post_text) > 30:
                     link = "https://www.facebook.com/StudentAffairsJU"
                     for a in art.find_all("a", href=True):
-                        if any(k in a['href'] for k in ["story.php", "fbid=", "/posts/", "/photos/"]):
-                            link = f"https://www.facebook.com{a['href']}" if a['href'].startswith("/") else a['href']
+                        href = a['href']
+                        if any(k in href for k in ["story.php", "fbid=", "/posts/", "/photos/"]):
+                            link = f"https://www.facebook.com{href}" if href.startswith("/") else href
                             break
 
                     post_id = "fb_sa_" + hashlib.md5(post_text[:100].encode('utf-8')).hexdigest()[:12]
@@ -184,11 +195,11 @@ def fetch_ju_student_affairs_facebook():
                             'title': post_text[:140] + ("..." if len(post_text) > 140 else ""),
                             'link': link
                         })
-            print(f"تم بنجاح جلب {len(posts)} منشور من صفحة فيسبوك لعمادة شؤون الطلبة.")
+            print(f"[فحص فيسبوك]: تم بنجاح استخراج {len(posts)} منشور.")
         else:
-            print("[تنبيه فيسبوك] لم يتم تمرير كوكيز صالحة أو تم التحويل لتسجيل الدخول.")
+            print(f"[فحص فيسبوك]: فشل الوصول للصفحة، الرابط المحول إليه: {res.url}")
     except Exception as e:
-        print(f"خطأ أثناء فحص فيسبوك: {e}")
+        print(f"[فحص فيسبوك]: حدث خطأ أثناء الاتصال: {e}")
 
     return posts[:5]
 
@@ -215,7 +226,7 @@ def main():
         except Exception as e:
             print(f"خطأ أثناء تشغيل الفاحص: {e}")
             
-    print(f"إجمالي العناصر التي تم العثور عليها: {len(all_current_news)}")
+    print(f"إجمالي العناصر التي تم جلبها: {len(all_current_news)}")
     
     sent_count = 0
     new_history = list(history)
@@ -237,7 +248,7 @@ def main():
     save_history(new_history)
     
     print("==================================================")
-    print(f"اكتمل الفحص بنجاح! الإعلانات الجديدة المسجلة: {sent_count if sent_count else len(new_history)}")
+    print(f"اكتمل الفحص بنجاح! الإعلانات الجديدة المسجلة: {sent_count}")
     print("==================================================")
 
 if __name__ == "__main__":
