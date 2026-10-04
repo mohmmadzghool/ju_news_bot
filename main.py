@@ -1,19 +1,35 @@
 import os
 import sys
-
-# ضمان تعرف بايثون على مجلد المشروع ومجلد sites في سيرفر GitHub
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 import json
 import requests
-from sites.site_ju_official import fetch_ju_official_news
-from sites.site_ju_reg_bachelor import fetch_ju_reg_bachelor_news
-from sites.site_ju_reg_grad import fetch_ju_reg_grad_news
-from sites.site_ju_student_affairs import fetch_ju_student_affairs_news
-from sites.site_ju_community_service import fetch_ju_community_service_news
-from sites.site_ju_finance import fetch_ju_finance_news
-from sites.site_ju_language_center import fetch_ju_language_center_news
-from sites.site_fb_student_affairs import fetch_fb_student_affairs_posts
+
+# إضافة مسار المجلد الحالي ومجلد sites للبحث
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sites_dir = os.path.join(current_dir, "sites")
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+if os.path.exists(sites_dir) and sites_dir not in sys.path:
+    sys.path.insert(0, sites_dir)
+
+# استيراد مرن يتوافق مع كلا الهيكلين
+try:
+    from sites.site_ju_official import fetch_ju_official_news
+    from sites.site_ju_reg_bachelor import fetch_ju_reg_bachelor_news
+    from sites.site_ju_reg_grad import fetch_ju_reg_grad_news
+    from sites.site_ju_student_affairs import fetch_ju_student_affairs_news
+    from sites.site_ju_community_service import fetch_ju_community_service_news
+    from sites.site_ju_finance import fetch_ju_finance_news
+    from sites.site_ju_language_center import fetch_ju_language_center_news
+    from sites.site_fb_student_affairs import fetch_fb_student_affairs_posts
+except ModuleNotFoundError:
+    from site_ju_official import fetch_ju_official_news
+    from site_ju_reg_bachelor import fetch_ju_reg_bachelor_news
+    from site_ju_reg_grad import fetch_ju_reg_grad_news
+    from site_ju_student_affairs import fetch_ju_student_affairs_news
+    from site_ju_community_service import fetch_ju_community_service_news
+    from site_ju_finance import fetch_ju_finance_news
+    from site_ju_language_center import fetch_ju_language_center_news
+    from site_fb_student_affairs import fetch_fb_student_affairs_posts
 
 HISTORY_FILE = "sent_news_history.json"
 
