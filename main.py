@@ -1,5 +1,6 @@
 from sites.site_ju_announcements import fetch_ju_announcements
 from sites.site_ju_registration import fetch_ju_registration_announcements
+from sites.site_ju_grad_studies import fetch_ju_grad_studies_announcements
 from telegram_notifier import send_telegram_alert
 from storage import load_sent_ids, save_sent_ids
 
@@ -12,9 +13,11 @@ def main():
     new_sent_ids = list(sent_ids)
     new_items_count = 0
 
+    # المصادر الثلاثة معتمدة وجاهزة للفحص
     fetchers = [
         fetch_ju_announcements,
-        fetch_ju_registration_announcements
+        fetch_ju_registration_announcements,
+        fetch_ju_grad_studies_announcements
     ]
 
     for fetcher in fetchers:
@@ -25,7 +28,6 @@ def main():
                 if item_id not in sent_ids:
                     print(f"إعلان جديد تم اكتشافه: {item['title']}")
                     
-                    # استدعاء دالتك بالمدخلات الثلاثة المطلوبة
                     success = send_telegram_alert(
                         source=item['source'],
                         title=item['title'],
@@ -41,7 +43,6 @@ def main():
         except Exception as e:
             print(f"خطأ أثناء تشغيل الفاحص: {e}")
 
-    # حفظ السجل لتفادي تكرار إرسال الإعلانات السابقة
     if new_items_count > 0:
         save_sent_ids(new_sent_ids)
 
