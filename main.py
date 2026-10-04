@@ -3,7 +3,6 @@ import sys
 import json
 import requests
 from bs4 import BeautifulSoup
-import re
 import hashlib
 
 HISTORY_FILE = "sent_news_history.json"
@@ -119,7 +118,7 @@ def fetch_ju_student_affairs_web():
                 item_id = "ju_sa_site_" + hashlib.md5(link.encode()).hexdigest()[:10]
                 if not any(i['id'] == item_id for i in news_items):
                     news_items.append({
-                        'source': 'موقع عمادة شؤون الطلبة',
+                        'source': 'عمادة شؤون الطلبة',
                         'id': item_id,
                         'title': text,
                         'link': link
@@ -128,40 +127,9 @@ def fetch_ju_student_affairs_web():
         print(f"خطأ في فحص موقع شؤون الطلبة: {e}", flush=True)
     return news_items[:5]
 
-def fetch_ju_student_affairs_facebook():
-    """فحص منشورات صفحة فيسبوك لعمادة شؤون الطلبة"""
-    print("[فحص فيسبوك]: بدء الاتصال بصفحة العمادة...", flush=True)
-    posts = []
-    
-    # محاولة سحب التغذية المباشرة للصفحة
-    try:
-        fb_url = "https://www.facebook.com/plugins/page.php?href=https%3A%2F%2Fwww.facebook.com%2FStudentAffairsJU&tabs=timeline"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        res = requests.get(fb_url, headers=headers, timeout=15)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.text, 'html.parser')
-            for div in soup.find_all('div', class_=re.compile(r'_1xnd|_4-u2|userContent')):
-                txt = div.get_text(" ", strip=True)
-                for w in ["إعجاب", "تعليق", "مشاركة", "Like", "Share"]:
-                    txt = txt.replace(w, "")
-                txt = re.sub(r'\s+', ' ', txt).strip()
-                if len(txt) > 30 and not any(p['title'] == txt[:140] for p in posts):
-                    post_id = "fb_sa_" + hashlib.md5(txt[:80].encode('utf-8')).hexdigest()[:12]
-                    posts.append({
-                        'source': 'فيسبوك: عمادة شؤون الطلبة',
-                        'id': post_id,
-                        'title': txt[:140] + ("..." if len(txt) > 140 else ""),
-                        'link': "https://www.facebook.com/StudentAffairsJU"
-                    })
-    except Exception as e:
-        print(f"[فحص فيسبوك]: خطأ في قراءة التغذية: {e}", flush=True)
-
-    print(f"[فحص فيسبوك]: تم بنجاح إنهاء الفحص (المنشورات الملتقطة: {len(posts)}).", flush=True)
-    return posts[:5]
-
 def main():
     print("==================================================", flush=True)
-    print("...بدء فحص مواقع الجامعة الرسمية وصفحة فيسبوك...", flush=True)
+    print("...بدء فحص مواقع وإعلانات الجامعة الرسمية...", flush=True)
     print("==================================================", flush=True)
     
     history = load_history()
@@ -170,8 +138,7 @@ def main():
     scrapers = [
         fetch_ju_official,
         fetch_ju_registration,
-        fetch_ju_student_affairs_web,
-        fetch_ju_student_affairs_facebook
+        fetch_ju_student_affairs_web
     ]
     
     for scraper in scrapers:
