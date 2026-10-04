@@ -49,63 +49,71 @@ def send_telegram_message(source, title, link):
         print(f"فشل إرسال الإشعار لتيليجرام: {e}", flush=True)
         return False
 
-# دالة مساعدة عامة لسحب الأخبار من بوابات كليات الجامعة
-def scrape_generic_ju_portal(source_name, base_url, prefix):
-    news_items = []
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+def scrape_generic_ju(source_name, target_url, base_domain, prefix):
+    items = []
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    }
     try:
-        res = requests.get(base_url, headers=headers, timeout=15)
+        res = requests.get(target_url, headers=headers, timeout=15)
         res.encoding = 'utf-8'
         soup = BeautifulSoup(res.text, 'html.parser')
         
         for a in soup.find_all('a', href=True):
             href = a['href']
             text = a.get_text(strip=True)
-            if any(k in href.lower() for k in ["newsdetails", "news", "announcement", "viewpost"]) and len(text) > 15:
-                link = href if href.startswith("http") else f"{base_url.rstrip('/')}/{href.lstrip('/')}"
+            
+            # فلترة الكلمات الدالة على الإعلانات والأخبار
+            keywords = ["newsdetails", "news", "announcement", "announce", "dispann", "school_dispann", "listform", "viewpost"]
+            if any(k in href.lower() for k in keywords) and len(text) > 15:
+                if href.startswith("http"):
+                    link = href
+                else:
+                    link = f"{base_domain.rstrip('/')}/{href.lstrip('/')}"
+                    
                 item_id = f"{prefix}_" + hashlib.md5(link.encode()).hexdigest()[:10]
-                if not any(i['id'] == item_id for i in news_items):
-                    news_items.append({
+                if not any(i['id'] == item_id for i in items):
+                    items.append({
                         'source': source_name,
                         'id': item_id,
                         'title': text,
                         'link': link
                     })
     except Exception as e:
-        print(f"خطأ في فحص {source_name}: {e}", flush=True)
-    return news_items[:5]
+        print(f"خطأ أثناء فحص {source_name}: {e}", flush=True)
+    return items[:5]
 
-# 1. موقع الجامعة الرئيسي
+# 1. إعلانات الجامعة الرسمية
 def fetch_ju_official():
-    return scrape_generic_ju_portal('موقع الجامعة الأردنية الرئيسي', 'https://www.ju.edu.jo', 'ju_main')
+    return scrape_generic_ju("إعلانات الجامعة الأردنية", "https://www.ju.edu.jo", "https://www.ju.edu.jo", "ju_main")
 
-# 2. وحدة القبول والتسجيل
+# 2. القبول والتسجيل (بكالوريوس)
 def fetch_ju_registration():
-    return scrape_generic_ju_portal('وحدة القبول والتسجيل', 'https://registration.ju.edu.jo', 'ju_reg')
+    return scrape_generic_ju("القبول والتسجيل (بكالوريوس)", "https://registration.ju.edu.jo", "https://registration.ju.edu.jo", "ju_reg")
 
-# 3. عمادة شؤون الطلبة
-def fetch_ju_student_affairs_web():
-    return scrape_generic_ju_portal('عمادة شؤون الطلبة', 'https://studentaffairs.ju.edu.jo', 'ju_sa')
+# 3. القبول والتسجيل (دراسات عليا)
+def fetch_ju_grad_studies():
+    return scrape_generic_ju("كلية الدراسات العليا", "https://graduatestudies.ju.edu.jo", "https://graduatestudies.ju.edu.jo", "ju_grad")
 
-# 4. كلية الملك عبدالله الثاني لتكنولوجيا المعلومات (KASIT)
-def fetch_ju_kasit():
-    return scrape_generic_ju_portal('كلية تكنولوجيا المعلومات (IT)', 'https://computer.ju.edu.jo', 'ju_it')
+# 4. إعلانات العمادة
+def fetch_ju_student_affairs():
+    return scrape_generic_ju("عمادة شؤون الطلبة", "https://studentaffairs.ju.edu.jo", "https://studentaffairs.ju.edu.jo", "ju_sa")
 
-# 5. كلية الهندسة
-def fetch_ju_engineering():
-    return scrape_generic_ju_portal('كلية الهندسة', 'https://engineering.ju.edu.jo', 'ju_eng')
+# 5. إعلانات مركز التنمية وخدمة المجتمع
+def fetch_ju_community_service():
+    return scrape_generic_ju("مركز التنمية وخدمة المجتمع", "https://lcndc.ju.edu.jo", "https://lcndc.ju.edu.jo", "ju_lcndc")
 
-# 6. كلية العلوم
-def fetch_ju_science():
-    return scrape_generic_ju_portal('كلية العلوم', 'https://science.ju.edu.jo', 'ju_sci')
+# 6. إعلانات الوحدة المالية
+def fetch_ju_finance():
+    return scrape_generic_ju("الوحدة المالية", "https://units.ju.edu.jo/ar/finance", "https://units.ju.edu.jo", "ju_fin")
 
-# 7. كلية الأعمال
-def fetch_ju_business():
-    return scrape_generic_ju_portal('كلية الأعمال', 'https://business.ju.edu.jo', 'ju_bus')
+# 7. إعلانات مركز اللغات
+def fetch_ju_languages_center():
+    return scrape_generic_ju("مركز اللغات", "https://centers.ju.edu.jo/ar/ujlc/Home.aspx", "https://centers.ju.edu.jo", "ju_lang")
 
 def main():
     print("==================================================", flush=True)
-    print("...بدء فحص كافة مواقع وبوابات الجامعة الأردنية (7 مواقع)...", flush=True)
+    print("...بدء فحص مواقع وإعلانات الجامعة المعتمدة (7 مواقع)...", flush=True)
     print("==================================================", flush=True)
     
     history = load_history()
@@ -114,11 +122,11 @@ def main():
     scrapers = [
         fetch_ju_official,
         fetch_ju_registration,
-        fetch_ju_student_affairs_web,
-        fetch_ju_kasit,
-        fetch_ju_engineering,
-        fetch_ju_science,
-        fetch_ju_business
+        fetch_ju_grad_studies,
+        fetch_ju_student_affairs,
+        fetch_ju_community_service,
+        fetch_ju_finance,
+        fetch_ju_languages_center
     ]
     
     for scraper in scrapers:
@@ -129,7 +137,7 @@ def main():
         except Exception as e:
             print(f"خطأ أثناء تشغيل الفاحص: {e}", flush=True)
             
-    print(f"إجمالي العناصر التي تم جلبها من كافة المواقع: {len(all_current_news)}", flush=True)
+    print(f"إجمالي العناصر التي تم جلبها: {len(all_current_news)}", flush=True)
     
     sent_count = 0
     new_history = list(history)
@@ -151,7 +159,7 @@ def main():
     save_history(new_history)
     
     print("==================================================", flush=True)
-    print(f"اكتمل الفحص بنجاح! الإعلانات الجديدة المرسلة: {sent_count}", flush=True)
+    print(f"اكتمل الفحص بنجاح! الإعلانات الجديدة المسجلة: {sent_count}", flush=True)
     print("==================================================", flush=True)
 
 if __name__ == "__main__":
