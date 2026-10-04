@@ -3,7 +3,6 @@ import sys
 import json
 import requests
 
-# إضافة مسار المجلد الحالي ومجلد sites للبحث
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sites_dir = os.path.join(current_dir, "sites")
 if current_dir not in sys.path:
@@ -11,25 +10,10 @@ if current_dir not in sys.path:
 if os.path.exists(sites_dir) and sites_dir not in sys.path:
     sys.path.insert(0, sites_dir)
 
-# استيراد مرن يتوافق مع كلا الهيكلين
 try:
-    from sites.site_ju_official import fetch_ju_official_news
-    from sites.site_ju_reg_bachelor import fetch_ju_reg_bachelor_news
-    from sites.site_ju_reg_grad import fetch_ju_reg_grad_news
-    from sites.site_ju_student_affairs import fetch_ju_student_affairs_news
-    from sites.site_ju_community_service import fetch_ju_community_service_news
-    from sites.site_ju_finance import fetch_ju_finance_news
-    from sites.site_ju_language_center import fetch_ju_language_center_news
-    from sites.site_fb_student_affairs import fetch_fb_student_affairs_posts
+    from sites.site_ju_announcements import get_all_scraped_items
 except ModuleNotFoundError:
-    from site_ju_official import fetch_ju_official_news
-    from site_ju_reg_bachelor import fetch_ju_reg_bachelor_news
-    from site_ju_reg_grad import fetch_ju_reg_grad_news
-    from site_ju_student_affairs import fetch_ju_student_affairs_news
-    from site_ju_community_service import fetch_ju_community_service_news
-    from site_ju_finance import fetch_ju_finance_news
-    from site_ju_language_center import fetch_ju_language_center_news
-    from site_fb_student_affairs import fetch_fb_student_affairs_posts
+    from site_ju_announcements import get_all_scraped_items
 
 HISTORY_FILE = "sent_news_history.json"
 
@@ -81,26 +65,7 @@ def main():
     print("==================================================")
     
     history = load_history()
-    all_current_news = []
-    
-    checkers = [
-        fetch_ju_official_news,
-        fetch_ju_reg_bachelor_news,
-        fetch_ju_reg_grad_news,
-        fetch_ju_student_affairs_news,
-        fetch_ju_community_service_news,
-        fetch_ju_finance_news,
-        fetch_ju_language_center_news,
-        fetch_fb_student_affairs_posts
-    ]
-    
-    for checker in checkers:
-        try:
-            items = checker()
-            if items:
-                all_current_news.extend(items)
-        except Exception as e:
-            print(f"خطأ أثناء فحص أحد المصادر: {e}")
+    all_current_news = get_all_scraped_items()
             
     sent_count = 0
     new_history = list(history)
