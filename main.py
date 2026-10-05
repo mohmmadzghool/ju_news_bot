@@ -49,6 +49,35 @@ def send_telegram_message(source, title, link):
         print(f"فشل إرسال الإشعار لتيليجرام: {e}", flush=True)
         return False
 
+def send_tg_channel_post(channel_name, post_text, post_link):
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    
+    if not token or not chat_id:
+        print(f"[منشور تيليجرام تجريبي] ({channel_name}) -> {post_text[:40]}...", flush=True)
+        return False
+
+    message_body = (
+        f"📢 <b>منشور جديد من: {channel_name}</b>\n\n"
+        f"{post_text}\n\n"
+        f"🔗 <a href='{post_link}'>رابط المنشور الأصلي</a>"
+    )
+    
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": message_body,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": False
+    }
+    
+    try:
+        res = requests.post(url, json=payload, timeout=15)
+        return res.status_code == 200
+    except Exception as e:
+        print(f"فشل إرسال منشور التيليجرام: {e}", flush=True)
+        return False
+
 def scrape_announcements(source_name, target_url, base_domain, prefix):
     """سحب الإعلانات الرسمية فقط وتجاهل الأخبار العامة"""
     items = []
@@ -57,7 +86,6 @@ def scrape_announcements(source_name, target_url, base_domain, prefix):
         'Accept-Language': 'ar,en;q=0.9'
     }
     
-    # كلمات وعبارات شائعة في القوائم يجب استبعادها حتى لا تظهر كإعلان
     ignore_texts = [
         "عرض الكل", "المزيد", "الصفحة الرئيسية", "رجوع", "السابق", "التالي", 
         "الرئيسية", "اتصل بنا", "عن الجامعة", "Home", "Back", "View All"
@@ -68,16 +96,13 @@ def scrape_announcements(source_name, target_url, base_domain, prefix):
         res.encoding = 'utf-8'
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # البحث عن روابط الإعلانات داخل الصفحة المحددة
         for a in soup.find_all('a', href=True):
             href = a['href'].strip()
             text = a.get_text(" ", strip=True)
             
-            # استبعاد الروابط الفارغة أو القصيرة جداً أو عبارات التنقل
             if len(text) < 12 or any(ignored == text for ignored in ignore_texts):
                 continue
                 
-            # التحقق أن الرابط يؤدي إلى إعلان (DispForm أو DispAnn أو عرض تفاصيل الإعلان)
             is_announcement = any(k in href.lower() for k in [
                 "dispform.aspx", "dispann", "school_dispann", "reg_dispann", "announcement"
             ])
@@ -165,56 +190,13 @@ def fetch_languages_center_ann():
         "lang_ann"
     )
 
-def main():
-    print("==================================================", flush=True)
-    print("...بدء فحص صفحات (الإعلانات الرسمية فقط) للمواقع الـ 7...", flush=True)
-    print("==================================================", flush=True)
-    
-    history = load_history()
-    all_current_announcements = []
-    
-    scrapers = [
-        fetch_ju_official_ann,
-        fetch_reg_bachelor_ann,
-        fetch_grad_studies_ann,
-        fetch_student_affairs_ann,
-        fetch_community_service_ann,
-        fetch_finance_ann,
-        fetch_languages_center_ann
+# 8. فاحص قنوات تيليجرام
+def scrape_telegram_channels():
+    channels = [
+        {"name": "قناة الجامعة الأردنية الرسمية", "username": "universityofjordanofficial"},
+        {"name": "أخبار الجامعة الأردنية", "username": "JUposts"}
     ]
     
-    for scraper in scrapers:
-        try:
-            items = scraper()
-            if items:
-                all_current_announcements.extend(items)
-        except Exception as e:
-            print(f"خطأ أثناء تشغيل الفاحص: {e}", flush=True)
-            
-    print(f"إجمالي الإعلانات التي تم العثور عليها: {len(all_current_announcements)}", flush=True)
-    
-    sent_count = 0
-    new_history = list(history)
-    
-    for item in all_current_announcements:
-        item_id = item.get("id")
-        if item_id and item_id not in history:
-            print(f"-> [إعلان جديد] {item['source']}: {item['title'][:60]}...", flush=True)
-            if send_telegram_message(item['source'], item['title'], item['link']):
-                print("   (تم الإرسال لتليجرام)", flush=True)
-                new_history.append(item_id)
-                sent_count += 1
-            else:
-                new_history.append(item_id)
-                
-    if len(new_history) > 2000:
-        new_history = new_history[-2000:]
-        
-    save_history(new_history)
-    
-    print("==================================================", flush=True)
-    print(f"اكتمل الفحص بنجاح! الإعلانات الجديدة المسجلة: {sent_count}", flush=True)
-    print("==================================================", flush=True)
-
-if __name__ == "__main__":
-    main()
+    posts = []
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0
