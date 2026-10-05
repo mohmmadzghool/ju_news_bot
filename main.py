@@ -31,7 +31,7 @@ def send_telegram_message(source, title, link):
     text = (
         f"📢 *إعلان جديد من: {source}*\n\n"
         f"📌 *العنوان:* {title}\n\n"
-        f"🔗 [اضغط هنا لقراءة التفاصيل والمنشور كاملاً]({link})"
+        f"🔗 [اضغط هنا لقراءة تفاصيل الإعلان]({link})"
     )
     
     url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -49,29 +49,47 @@ def send_telegram_message(source, title, link):
         print(f"فشل إرسال الإشعار لتيليجرام: {e}", flush=True)
         return False
 
-def scrape_generic_ju(source_name, target_url, base_domain, prefix):
+def scrape_announcements(source_name, target_url, base_domain, prefix):
+    """سحب الإعلانات الرسمية فقط وتجاهل الأخبار العامة"""
     items = []
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept-Language': 'ar,en;q=0.9'
     }
+    
+    # كلمات وعبارات شائعة في القوائم يجب استبعادها حتى لا تظهر كإعلان
+    ignore_texts = [
+        "عرض الكل", "المزيد", "الصفحة الرئيسية", "رجوع", "السابق", "التالي", 
+        "الرئيسية", "اتصل بنا", "عن الجامعة", "Home", "Back", "View All"
+    ]
+    
     try:
-        res = requests.get(target_url, headers=headers, timeout=15)
+        res = requests.get(target_url, headers=headers, timeout=20)
         res.encoding = 'utf-8'
         soup = BeautifulSoup(res.text, 'html.parser')
         
+        # البحث عن روابط الإعلانات داخل الصفحة المحددة
         for a in soup.find_all('a', href=True):
-            href = a['href']
-            text = a.get_text(strip=True)
+            href = a['href'].strip()
+            text = a.get_text(" ", strip=True)
             
-            # فلترة الكلمات الدالة على الإعلانات والأخبار
-            keywords = ["newsdetails", "news", "announcement", "announce", "dispann", "school_dispann", "listform", "viewpost"]
-            if any(k in href.lower() for k in keywords) and len(text) > 15:
+            # استبعاد الروابط الفارغة أو القصيرة جداً أو عبارات التنقل
+            if len(text) < 12 or any(ignored == text for ignored in ignore_texts):
+                continue
+                
+            # التحقق أن الرابط يؤدي إلى إعلان (DispForm أو DispAnn أو عرض تفاصيل الإعلان)
+            is_announcement = any(k in href.lower() for k in [
+                "dispform.aspx", "dispann", "school_dispann", "reg_dispann", "announcement"
+            ])
+            
+            if is_announcement:
                 if href.startswith("http"):
                     link = href
                 else:
                     link = f"{base_domain.rstrip('/')}/{href.lstrip('/')}"
                     
-                item_id = f"{prefix}_" + hashlib.md5(link.encode()).hexdigest()[:10]
+                item_id = f"{prefix}_" + hashlib.md5((link + text).encode('utf-8')).hexdigest()[:12]
+                
                 if not any(i['id'] == item_id for i in items):
                     items.append({
                         'source': source_name,
@@ -81,71 +99,107 @@ def scrape_generic_ju(source_name, target_url, base_domain, prefix):
                     })
     except Exception as e:
         print(f"خطأ أثناء فحص {source_name}: {e}", flush=True)
+        
     return items[:5]
 
-# 1. إعلانات الجامعة الرسمية
-def fetch_ju_official():
-    return scrape_generic_ju("إعلانات الجامعة الأردنية", "https://www.ju.edu.jo", "https://www.ju.edu.jo", "ju_main")
+# 1. إعلانات الجامعة الأردنية
+def fetch_ju_official_ann():
+    return scrape_announcements(
+        "إعلانات الجامعة الأردنية",
+        "https://www.ju.edu.jo/ar/arabic/Lists/Announcements/All_Ann.aspx",
+        "https://www.ju.edu.jo",
+        "ju_ann"
+    )
 
-# 2. القبول والتسجيل (بكالوريوس)
-def fetch_ju_registration():
-    return scrape_generic_ju("القبول والتسجيل (بكالوريوس)", "https://registration.ju.edu.jo", "https://registration.ju.edu.jo", "ju_reg")
+# 2. القبول و التسجيل (بكالوريوس)
+def fetch_reg_bachelor_ann():
+    return scrape_announcements(
+        "القبول والتسجيل (بكالوريوس)",
+        "https://registration.ju.edu.jo/Lists/UnitAnnouncements/Reg_AllAnn.aspx",
+        "https://registration.ju.edu.jo",
+        "reg_bach"
+    )
 
-# 3. القبول والتسجيل (دراسات عليا)
-def fetch_ju_grad_studies():
-    return scrape_generic_ju("كلية الدراسات العليا", "https://graduatestudies.ju.edu.jo", "https://graduatestudies.ju.edu.jo", "ju_grad")
+# 3. القبول و التسجيل (دراسات عليا)
+def fetch_grad_studies_ann():
+    return scrape_announcements(
+        "كلية الدراسات العليا",
+        "https://graduatestudies.ju.edu.jo/ar/arabic/Lists/AcademicNews/School_AllAnn.aspx",
+        "https://graduatestudies.ju.edu.jo",
+        "grad_ann"
+    )
 
-# 4. إعلانات العمادة
-def fetch_ju_student_affairs():
-    return scrape_generic_ju("عمادة شؤون الطلبة", "https://studentaffairs.ju.edu.jo", "https://studentaffairs.ju.edu.jo", "ju_sa")
+# 4. إعلانات عمادة شؤون الطلبة
+def fetch_student_affairs_ann():
+    return scrape_announcements(
+        "عمادة شؤون الطلبة",
+        "https://studentaffairs.ju.edu.jo/Lists/Announcements/School_AllAnn.aspx",
+        "https://studentaffairs.ju.edu.jo",
+        "sa_ann"
+    )
 
 # 5. إعلانات مركز التنمية وخدمة المجتمع
-def fetch_ju_community_service():
-    return scrape_generic_ju("مركز التنمية وخدمة المجتمع", "https://lcndc.ju.edu.jo", "https://lcndc.ju.edu.jo", "ju_lcndc")
+def fetch_community_service_ann():
+    return scrape_announcements(
+        "مركز التنمية وخدمة المجتمع",
+        "https://lcndc.ju.edu.jo/ar/arabic/Lists/Announcements/AllAnn_new.aspx",
+        "https://lcndc.ju.edu.jo",
+        "lcndc_ann"
+    )
 
 # 6. إعلانات الوحدة المالية
-def fetch_ju_finance():
-    return scrape_generic_ju("الوحدة المالية", "https://units.ju.edu.jo/ar/finance", "https://units.ju.edu.jo", "ju_fin")
+def fetch_finance_ann():
+    return scrape_announcements(
+        "الوحدة المالية",
+        "https://units.ju.edu.jo/ar/finance/Lists/Announcements/School_AllAnn.aspx",
+        "https://units.ju.edu.jo",
+        "fin_ann"
+    )
 
 # 7. إعلانات مركز اللغات
-def fetch_ju_languages_center():
-    return scrape_generic_ju("مركز اللغات", "https://centers.ju.edu.jo/ar/ujlc/Home.aspx", "https://centers.ju.edu.jo", "ju_lang")
+def fetch_languages_center_ann():
+    return scrape_announcements(
+        "مركز اللغات",
+        "https://centers.ju.edu.jo/ar/ujlc/Lists/Announcements/School_AllAnn.aspx",
+        "https://centers.ju.edu.jo",
+        "lang_ann"
+    )
 
 def main():
     print("==================================================", flush=True)
-    print("...بدء فحص مواقع وإعلانات الجامعة المعتمدة (7 مواقع)...", flush=True)
+    print("...بدء فحص صفحات (الإعلانات الرسمية فقط) للمواقع الـ 7...", flush=True)
     print("==================================================", flush=True)
     
     history = load_history()
-    all_current_news = []
+    all_current_announcements = []
     
     scrapers = [
-        fetch_ju_official,
-        fetch_ju_registration,
-        fetch_ju_grad_studies,
-        fetch_ju_student_affairs,
-        fetch_ju_community_service,
-        fetch_ju_finance,
-        fetch_ju_languages_center
+        fetch_ju_official_ann,
+        fetch_reg_bachelor_ann,
+        fetch_grad_studies_ann,
+        fetch_student_affairs_ann,
+        fetch_community_service_ann,
+        fetch_finance_ann,
+        fetch_languages_center_ann
     ]
     
     for scraper in scrapers:
         try:
             items = scraper()
             if items:
-                all_current_news.extend(items)
+                all_current_announcements.extend(items)
         except Exception as e:
             print(f"خطأ أثناء تشغيل الفاحص: {e}", flush=True)
             
-    print(f"إجمالي العناصر التي تم جلبها: {len(all_current_news)}", flush=True)
+    print(f"إجمالي الإعلانات التي تم العثور عليها: {len(all_current_announcements)}", flush=True)
     
     sent_count = 0
     new_history = list(history)
     
-    for item in all_current_news:
+    for item in all_current_announcements:
         item_id = item.get("id")
         if item_id and item_id not in history:
-            print(f"-> [جديد] {item['source']}: {item['title'][:60]}...", flush=True)
+            print(f"-> [إعلان جديد] {item['source']}: {item['title'][:60]}...", flush=True)
             if send_telegram_message(item['source'], item['title'], item['link']):
                 print("   (تم الإرسال لتليجرام)", flush=True)
                 new_history.append(item_id)
