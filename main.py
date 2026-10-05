@@ -79,10 +79,9 @@ def send_tg_channel_post(channel_name, post_text, post_link):
         return False
 
 def scrape_announcements(source_name, target_url, base_domain, prefix):
-    """سحب الإعلانات الرسمية فقط وتجاهل الأخبار العامة"""
     items = []
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36',
         'Accept-Language': 'ar,en;q=0.9'
     }
     
@@ -199,4 +198,105 @@ def scrape_telegram_channels():
     
     posts = []
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36'
+    }
+    
+    for ch in channels:
+        url = f"https://t.me/s/{ch['username']}"
+        try:
+            res = requests.get(url, headers=headers, timeout=15)
+            if res.status_code != 200:
+                continue
+                
+            soup = BeautifulSoup(res.text, 'html.parser')
+            messages = soup.find_all("div", class_="tgme_widget_message")
+            
+            for msg in messages[-3:]:
+                data_post = msg.get("data-post")
+                if not data_post:
+                    continue
+                    
+                text_div = msg.find("div", class_="tgme_widget_message_text")
+                post_text = text_div.get_text(separator="\n").strip() if text_div else ""
+                
+                if not post_text:
+                    continue
+                    
+                post_id = f"tg_{data_post.replace('/', '_')}"
+                posts.append({
+                    "id": post_id,
+                    "channel_name": ch["name"],
+                    "text": post_text,
+                    "link": f"https://t.me/{data_post}"
+                })
+        except Exception as e:
+            print(f"خطأ أثناء فحص قناة تيليجرام {ch['username']}: {e}", flush=True)
+            
+    return posts
+
+def main():
+    print("==================================================", flush=True)
+    print("...بدء فحص صفحات الإعلانات الرسمية وقنوات تيليجرام...", flush=True)
+    print("==================================================", flush=True)
+    
+    history = load_history()
+    new_history = list(history)
+    sent_count = 0
+
+    all_current_announcements = []
+    scrapers = [
+        fetch_ju_official_ann,
+        fetch_reg_bachelor_ann,
+        fetch_grad_studies_ann,
+        fetch_student_affairs_ann,
+        fetch_community_service_ann,
+        fetch_finance_ann,
+        fetch_languages_center_ann
+    ]
+    
+    for scraper in scrapers:
+        try:
+            items = scraper()
+            if items:
+                all_current_announcements.extend(items)
+        except Exception as e:
+            print(f"خطأ أثناء تشغيل الفاحص: {e}", flush=True)
+            
+    print(f"إجمالي إعلانات المواقع: {len(all_current_announcements)}", flush=True)
+    
+    for item in all_current_announcements:
+        item_id = item.get("id")
+        if item_id and item_id not in history:
+            print(f"-> [إعلان موقع جديد] {item['source']}: {item['title'][:60]}...", flush=True)
+            if send_telegram_message(item['source'], item['title'], item['link']):
+                print("   (تم الإرسال لتليجرام)", flush=True)
+                new_history.append(item_id)
+                sent_count += 1
+            else:
+                new_history.append(item_id)
+
+    tg_posts = scrape_telegram_channels()
+    print(f"إجمالي منشورات التيليجرام المفحوصة: {len(tg_posts)}", flush=True)
+    
+    for post in tg_posts:
+        post_id = post.get("id")
+        if post_id and post_id not in history:
+            print(f"-> [منشور تيليجرام جديد] {post['channel_name']}: {post['text'][:50]}...", flush=True)
+            if send_tg_channel_post(post["channel_name"], post["text"], post["link"]):
+                print("   (تم الإرسال لتليجرام)", flush=True)
+                new_history.append(post_id)
+                sent_count += 1
+            else:
+                new_history.append(post_id)
+                
+    if len(new_history) > 2000:
+        new_history = new_history[-2000:]
+        
+    save_history(new_history)
+    
+    print("==================================================", flush=True)
+    print(f"اكتمل الفحص بنجاح! المنشورات والإعلانات الجديدة: {sent_count}", flush=True)
+    print("==================================================", flush=True)
+
+if __name__ == "__main__":
+    main()
