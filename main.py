@@ -49,7 +49,7 @@ def send_telegram_message(source, title, link):
         print(f"فشل إرسال الإشعار لتيليجرام: {e}", flush=True)
         return False
 
-def send_tg_channel_post(channel_name, post_text, post_link):
+def send_tg_channel_post(channel_name, post_text, post_link, image_url=None):
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     
@@ -57,22 +57,32 @@ def send_tg_channel_post(channel_name, post_text, post_link):
         print(f"[منشور تيليجرام تجريبي] ({channel_name}) -> {post_text[:40]}...", flush=True)
         return False
 
-    message_body = (
+    caption = (
         f"📢 <b>منشور جديد من: {channel_name}</b>\n\n"
         f"{post_text}\n\n"
         f"🔗 <a href='{post_link}'>رابط المنشور الأصلي</a>"
     )
-    
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": message_body,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": False
-    }
+
+    # إذا كان المنشور يحتوي على صورة
+    if image_url:
+        url = f"https://api.telegram.org/bot{token}/sendPhoto"
+        payload = {
+            "chat_id": chat_id,
+            "photo": image_url,
+            "caption": caption[:1024],  # حد تليجرام لوصف الصور
+            "parse_mode": "HTML"
+        }
+    else:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": caption,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": False
+        }
     
     try:
-        res = requests.post(url, json=payload, timeout=15)
+        res = requests.post(url, json=payload, timeout=20)
         return res.status_code == 200
     except Exception as e:
         print(f"فشل إرسال منشور التيليجرام: {e}", flush=True)
@@ -189,7 +199,7 @@ def fetch_languages_center_ann():
         "lang_ann"
     )
 
-# 8. فاحص قنوات تيليجرام
+# 8. فاحص قنوات تيليجرام المطور (يدعم الصور، الفيديوهات، والنصوص)
 def scrape_telegram_channels():
     channels = [
         {"name": "قناة الجامعة الأردنية الرسمية", "username": "universityofjordanofficial"},
@@ -198,28 +208,44 @@ def scrape_telegram_channels():
     
     posts = []
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept-Language': 'ar,en;q=0.9'
     }
     
     for ch in channels:
         url = f"https://t.me/s/{ch['username']}"
         try:
-            res = requests.get(url, headers=headers, timeout=15)
+            res = requests.get(url, headers=headers, timeout=20)
             if res.status_code != 200:
                 continue
                 
             soup = BeautifulSoup(res.text, 'html.parser')
             messages = soup.find_all("div", class_="tgme_widget_message")
             
-            for msg in messages[-3:]:
+            for msg in messages[-6:]:
                 data_post = msg.get("data-post")
                 if not data_post:
                     continue
-                    
+                
+                # استخراج النص
                 text_div = msg.find("div", class_="tgme_widget_message_text")
                 post_text = text_div.get_text(separator="\n").strip() if text_div else ""
                 
-                if not post_text:
+                # استخراج رابط الصورة إن وجدت
+                image_url = None
+                photo_wrap = msg.find("a", class_="tgme_widget_message_photo_wrap")
+                if photo_wrap and photo_wrap.get("style"):
+                    style = photo_wrap["style"]
+                    if "background-image:url('" in style:
+                        image_url = style.split("background-image:url('")[1].split("')")[0]
+                
+                # التحقق من وجود فيديو
+                video_tag = msg.find("video")
+                if video_tag and not post_text:
+                    post_text = "📹 مقطع فيديو جديد من القناة"
+
+                # إذا لم يكن هناك نص ولا صورة نتخطاه
+                if not post_text and not image_url:
                     continue
                     
                 post_id = f"tg_{data_post.replace('/', '_')}"
@@ -227,6 +253,7 @@ def scrape_telegram_channels():
                     "id": post_id,
                     "channel_name": ch["name"],
                     "text": post_text,
+                    "image_url": image_url,
                     "link": f"https://t.me/{data_post}"
                 })
         except Exception as e:
@@ -282,7 +309,7 @@ def main():
         post_id = post.get("id")
         if post_id and post_id not in history:
             print(f"-> [منشور تيليجرام جديد] {post['channel_name']}: {post['text'][:50]}...", flush=True)
-            if send_tg_channel_post(post["channel_name"], post["text"], post["link"]):
+            if send_tg_channel_post(post["channel_name"], post["text"], post["link"], post.get("image_url")):
                 print("   (تم الإرسال لتليجرام)", flush=True)
                 new_history.append(post_id)
                 sent_count += 1
