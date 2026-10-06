@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import html
 import requests
 from bs4 import BeautifulSoup
 import hashlib
@@ -28,23 +29,30 @@ def send_telegram_message(source, title, link):
         print(f"[تنبيه تجريبي] ({source}) -> {title[:40]}...", flush=True)
         return False
         
+    safe_source = html.escape(source)
+    safe_title = html.escape(title)
+    
     text = (
-        f"📢 *إعلان جديد من: {source}*\n\n"
-        f"📌 *العنوان:* {title}\n\n"
-        f"🔗 [اضغط هنا لقراءة تفاصيل الإعلان]({link})"
+        f"📢 <b>إعلان جديد من: {safe_source}</b>\n\n"
+        f"📌 <b>العنوان:</b> {safe_title}\n\n"
+        f"🔗 <a href='{link}'>اضغط هنا لقراءة تفاصيل الإعلان</a>"
     )
     
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "Markdown",
+        "parse_mode": "HTML",
         "disable_web_page_preview": False
     }
     
     try:
         res = requests.post(url, json=payload, timeout=15)
-        return res.status_code == 200
+        if res.status_code == 200:
+            return True
+        else:
+            print(f"خطأ تيليجرام في إعلان الموقع: {res.text}", flush=True)
+            return False
     except Exception as e:
         print(f"فشل إرسال الإشعار لتيليجرام: {e}", flush=True)
         return False
@@ -57,36 +65,67 @@ def send_tg_channel_post(channel_name, post_text, post_link, image_url=None):
         print(f"[منشور تيليجرام تجريبي] ({channel_name}) -> {post_text[:40]}...", flush=True)
         return False
 
+    safe_channel = html.escape(channel_name)
+    safe_text = html.escape(post_text)
+    
     caption = (
-        f"📢 <b>منشور جديد من: {channel_name}</b>\n\n"
-        f"{post_text}\n\n"
+        f"📢 <b>منشور جديد من: {safe_channel}</b>\n\n"
+        f"{safe_text}\n\n"
         f"🔗 <a href='{post_link}'>رابط المنشور الأصلي</a>"
     )
 
-    # إذا كان المنشور يحتوي على صورة
-    if image_url:
-        url = f"https://api.telegram.org/bot{token}/sendPhoto"
-        payload = {
-            "chat_id": chat_id,
-            "photo": image_url,
-            "caption": caption[:1024],  # حد تليجرام لوصف الصور
-            "parse_mode": "HTML"
-        }
-    else:
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        payload = {
-            "chat_id": chat_id,
-            "text": caption,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": False
-        }
-    
     try:
-        res = requests.post(url, json=payload, timeout=20)
-        return res.status_code == 200
+        if image_url:
+            # إذا كان النص قصيراً يكفي وصف الصورة
+            if len(caption) <= 1024:
+                url = f"https://api.telegram.org/bot{token}/sendPhoto"
+                payload = {
+                    "chat_id": chat_id,
+                    "photo": image_url,
+                    "caption": caption,
+                    "parse_mode": "HTML"
+                }
+                res = requests.post(url, json=payload, timeout=20)
+                if res.status_code == 200:
+                    return True
+                else:
+                    print(f"خطأ تيليجرام أثناء إرسال الصورة: {res.text}", flush=True)
+            else:
+                # إذا كان النص أطول من 1024 نرسل الصورة ثم النص كاملاً
+                url_photo = f"https://api.telegram.org/bot{token}/sendPhoto"
+                requests.post(url_photo, json={"chat_id": chat_id, "photo": image_url}, timeout=15)
+                
+                url_msg = f"https://api.telegram.org/bot{token}/sendMessage"
+                payload = {
+                    "chat_id": chat_id,
+                    "text": caption[:4000],
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": False
+                }
+                res = requests.post(url_msg, json=payload, timeout=20)
+                if res.status_code == 200:
+                    return True
+                else:
+                    print(f"خطأ تيليجرام في إرسال الرسالة الطويلة: {res.text}", flush=True)
+        else:
+            url = f"https://api.telegram.org/bot{token}/sendMessage"
+            payload = {
+                "chat_id": chat_id,
+                "text": caption[:4000],
+                "parse_mode": "HTML",
+                "disable_web_page_preview": False
+            }
+            res = requests.post(url, json=payload, timeout=20)
+            if res.status_code == 200:
+                return True
+            else:
+                print(f"خطأ تيليجرام في إرسال المنشور النصي: {res.text}", flush=True)
+                
     except Exception as e:
         print(f"فشل إرسال منشور التيليجرام: {e}", flush=True)
         return False
+
+    return False
 
 def scrape_announcements(source_name, target_url, base_domain, prefix):
     items = []
@@ -136,7 +175,6 @@ def scrape_announcements(source_name, target_url, base_domain, prefix):
         
     return items[:5]
 
-# 1. إعلانات الجامعة الأردنية
 def fetch_ju_official_ann():
     return scrape_announcements(
         "إعلانات الجامعة الأردنية",
@@ -145,7 +183,6 @@ def fetch_ju_official_ann():
         "ju_ann"
     )
 
-# 2. القبول و التسجيل (بكالوريوس)
 def fetch_reg_bachelor_ann():
     return scrape_announcements(
         "القبول والتسجيل (بكالوريوس)",
@@ -154,7 +191,6 @@ def fetch_reg_bachelor_ann():
         "reg_bach"
     )
 
-# 3. القبول و التسجيل (دراسات عليا)
 def fetch_grad_studies_ann():
     return scrape_announcements(
         "كلية الدراسات العليا",
@@ -163,7 +199,6 @@ def fetch_grad_studies_ann():
         "grad_ann"
     )
 
-# 4. إعلانات عمادة شؤون الطلبة
 def fetch_student_affairs_ann():
     return scrape_announcements(
         "عمادة شؤون الطلبة",
@@ -172,7 +207,6 @@ def fetch_student_affairs_ann():
         "sa_ann"
     )
 
-# 5. إعلانات مركز التنمية وخدمة المجتمع
 def fetch_community_service_ann():
     return scrape_announcements(
         "مركز التنمية وخدمة المجتمع",
@@ -181,7 +215,6 @@ def fetch_community_service_ann():
         "lcndc_ann"
     )
 
-# 6. إعلانات الوحدة المالية
 def fetch_finance_ann():
     return scrape_announcements(
         "الوحدة المالية",
@@ -190,7 +223,6 @@ def fetch_finance_ann():
         "fin_ann"
     )
 
-# 7. إعلانات مركز اللغات
 def fetch_languages_center_ann():
     return scrape_announcements(
         "مركز اللغات",
@@ -199,7 +231,6 @@ def fetch_languages_center_ann():
         "lang_ann"
     )
 
-# 8. فاحص قنوات تيليجرام المطور (يدعم الصور، الفيديوهات، والنصوص)
 def scrape_telegram_channels():
     channels = [
         {"name": "قناة الجامعة الأردنية الرسمية", "username": "universityofjordanofficial"},
@@ -227,11 +258,9 @@ def scrape_telegram_channels():
                 if not data_post:
                     continue
                 
-                # استخراج النص
                 text_div = msg.find("div", class_="tgme_widget_message_text")
                 post_text = text_div.get_text(separator="\n").strip() if text_div else ""
                 
-                # استخراج رابط الصورة إن وجدت
                 image_url = None
                 photo_wrap = msg.find("a", class_="tgme_widget_message_photo_wrap")
                 if photo_wrap and photo_wrap.get("style"):
@@ -239,12 +268,10 @@ def scrape_telegram_channels():
                     if "background-image:url('" in style:
                         image_url = style.split("background-image:url('")[1].split("')")[0]
                 
-                # التحقق من وجود فيديو
                 video_tag = msg.find("video")
                 if video_tag and not post_text:
                     post_text = "📹 مقطع فيديو جديد من القناة"
 
-                # إذا لم يكن هناك نص ولا صورة نتخطاه
                 if not post_text and not image_url:
                     continue
                     
@@ -296,11 +323,11 @@ def main():
         if item_id and item_id not in history:
             print(f"-> [إعلان موقع جديد] {item['source']}: {item['title'][:60]}...", flush=True)
             if send_telegram_message(item['source'], item['title'], item['link']):
-                print("   (تم الإرسال لتليجرام)", flush=True)
+                print("   (تم الإرسال لتيليجرام)", flush=True)
                 new_history.append(item_id)
                 sent_count += 1
             else:
-                new_history.append(item_id)
+                print("   [فشل الإرسال - لن يتم الحفظ لإعادة المحاولة]", flush=True)
 
     tg_posts = scrape_telegram_channels()
     print(f"إجمالي منشورات التيليجرام المفحوصة: {len(tg_posts)}", flush=True)
@@ -310,11 +337,11 @@ def main():
         if post_id and post_id not in history:
             print(f"-> [منشور تيليجرام جديد] {post['channel_name']}: {post['text'][:50]}...", flush=True)
             if send_tg_channel_post(post["channel_name"], post["text"], post["link"], post.get("image_url")):
-                print("   (تم الإرسال لتليجرام)", flush=True)
+                print("   (تم الإرسال لتيليجرام)", flush=True)
                 new_history.append(post_id)
                 sent_count += 1
             else:
-                new_history.append(post_id)
+                print("   [فشل الإرسال - لن يتم الحفظ لإعادة المحاولة]", flush=True)
                 
     if len(new_history) > 2000:
         new_history = new_history[-2000:]
