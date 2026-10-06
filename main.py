@@ -74,58 +74,48 @@ def send_tg_channel_post(channel_name, post_text, post_link, image_url=None):
         f"🔗 <a href='{post_link}'>رابط المنشور الأصلي</a>"
     )
 
-    try:
-        if image_url:
-            # إذا كان النص قصيراً يكفي وصف الصورة
+    # محاولة إرسال الصورة إن وجدت
+    if image_url:
+        try:
+            url_photo = f"https://api.telegram.org/bot{token}/sendPhoto"
             if len(caption) <= 1024:
-                url = f"https://api.telegram.org/bot{token}/sendPhoto"
                 payload = {
                     "chat_id": chat_id,
                     "photo": image_url,
                     "caption": caption,
                     "parse_mode": "HTML"
                 }
-                res = requests.post(url, json=payload, timeout=20)
+                res = requests.post(url_photo, json=payload, timeout=15)
                 if res.status_code == 200:
                     return True
-                else:
-                    print(f"خطأ تيليجرام أثناء إرسال الصورة: {res.text}", flush=True)
             else:
-                # إذا كان النص أطول من 1024 نرسل الصورة ثم النص كاملاً
-                url_photo = f"https://api.telegram.org/bot{token}/sendPhoto"
-                requests.post(url_photo, json={"chat_id": chat_id, "photo": image_url}, timeout=15)
-                
+                requests.post(url_photo, json={"chat_id": chat_id, "photo": image_url}, timeout=10)
                 url_msg = f"https://api.telegram.org/bot{token}/sendMessage"
-                payload = {
+                res_msg = requests.post(url_msg, json={
                     "chat_id": chat_id,
                     "text": caption[:4000],
                     "parse_mode": "HTML",
                     "disable_web_page_preview": False
-                }
-                res = requests.post(url_msg, json=payload, timeout=20)
-                if res.status_code == 200:
+                }, timeout=15)
+                if res_msg.status_code == 200:
                     return True
-                else:
-                    print(f"خطأ تيليجرام في إرسال الرسالة الطويلة: {res.text}", flush=True)
-        else:
-            url = f"https://api.telegram.org/bot{token}/sendMessage"
-            payload = {
-                "chat_id": chat_id,
-                "text": caption[:4000],
-                "parse_mode": "HTML",
-                "disable_web_page_preview": False
-            }
-            res = requests.post(url, json=payload, timeout=20)
-            if res.status_code == 200:
-                return True
-            else:
-                print(f"خطأ تيليجرام في إرسال المنشور النصي: {res.text}", flush=True)
-                
-    except Exception as e:
-        print(f"فشل إرسال منشور التيليجرام: {e}", flush=True)
-        return False
+        except Exception:
+            pass
 
-    return False
+    # إذا تعذر تحميل الصورة يتم إرسال النص فوراً بدلاً من إسقاط المنشور
+    try:
+        url_msg = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": caption[:4000],
+            "parse_mode": "HTML",
+            "disable_web_page_preview": False
+        }
+        res = requests.post(url_msg, json=payload, timeout=15)
+        return res.status_code == 200
+    except Exception as e:
+        print(f"فشل إرسال المنشور: {e}", flush=True)
+        return False
 
 def scrape_announcements(source_name, target_url, base_domain, prefix):
     items = []
