@@ -343,4 +343,12 @@ def main():
     print("==================================================", flush=True)
 
 if __name__ == "__main__":
-    main()
+    import time
+    print("Bot worker started...")
+    while True:
+        try:
+            main()
+        except Exception as e:
+            print(f"Error during execution: {e}")
+        # فحص دوري كل دقيقة واحدة (60 ثانية)
+        time.sleep(60)
