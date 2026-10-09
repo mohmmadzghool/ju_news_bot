@@ -8,13 +8,24 @@ import hashlib
 import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
+import ssl
+from urllib3.util import ssl_
+from requests.adapters import HTTPAdapter
 
-# تشغيل خادم ويب وهمي بسيط لإرضاء فحص Render المجاني
+# خادم ويب وهمي بسيط للرد على فحوصات Render (GET و HEAD)
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"JU Bot Worker is running 24/7!")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        # كتم سجلات الفحص ليبقى الـ Logs نظيفاً
+        return
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
@@ -126,14 +137,36 @@ def send_tg_channel_post(channel_name, post_text, post_link, image_url=None):
         print(f"فشل إرسال المنشور: {e}", flush=True)
         return False
 
-# جلسة تصفح مع Headers تحاكي متصفح حقيقي بالكامل
+# محول SSL لحل مشكلة رفض سيرفر الجامعة (Connection reset by peer)
+class LegacySSLAdapter(HTTPAdapter):
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = ssl_.create_urllib3_context()
+        try:
+            ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+        except Exception:
+            pass
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        kwargs['ssl_context'] = ctx
+        return super(LegacySSLAdapter, self).init_poolmanager(*args, **kwargs)
+
+# إعداد جلسة التصفح
 session = requests.Session()
+adapter = LegacySSLAdapter()
+session.mount('https://', adapter)
+session.mount('http://', adapter)
+session.verify = False
+
+try:
+    requests.packages.urllib3.disable_warnings()
+except Exception:
+    pass
+
 session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
-    'Connection': 'keep-alive',
-    'Upgrade-Insecure-Requests': '1'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'ar,en;q=0.9',
+    'Connection': 'keep-alive'
 })
 
 def scrape_announcements(source_name, target_url, base_domain, prefix):
@@ -316,7 +349,7 @@ def main():
         except Exception as e:
             print(f"خطأ أثناء تشغيل الفاحص: {e}", flush=True)
             
-    print(f"إجمالي إعلانات المواقع: {len(all_current_announcements)}", flush=True)
+    print(f"إجمالي إعلانات المواقع المفحوصة: {len(all_current_announcements)}", flush=True)
     
     for item in all_current_announcements:
         item_id = item.get("id")
@@ -349,11 +382,10 @@ def main():
     save_history(new_history)
     
     print("==================================================", flush=True)
-    print(f"اكتمل الفحص بنجاح! المنشورات والإعلانات الجديدة: {sent_count}", flush=True)
+    print(f"اكتمل الفحص بنجاح! المنشورات والإعلانات الجديدة المرسلة: {sent_count}", flush=True)
     print("==================================================", flush=True)
 
 if __name__ == "__main__":
-    # تشغيل خادم الويب في خلفية منفصلة لإرضاء Render
     web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
     
