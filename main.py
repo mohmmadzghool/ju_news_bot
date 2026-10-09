@@ -7,12 +7,10 @@ from bs4 import BeautifulSoup
 import hashlib
 import time
 import threading
+from urllib.parse import quote
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import ssl
-from urllib3.util import ssl_
-from requests.adapters import HTTPAdapter
 
-# خادم ويب وهمي بسيط للرد على فحوصات Render (GET و HEAD)
+# خادم ويب وهمي بسيط للرد على فحوصات Render
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -24,7 +22,6 @@ class SimpleHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def log_message(self, format, *args):
-        # كتم سجلات الفحص ليبقى الـ Logs نظيفاً
         return
 
 def run_web_server():
@@ -137,37 +134,39 @@ def send_tg_channel_post(channel_name, post_text, post_link, image_url=None):
         print(f"فشل إرسال المنشور: {e}", flush=True)
         return False
 
-# محول SSL لحل مشكلة رفض سيرفر الجامعة (Connection reset by peer)
-class LegacySSLAdapter(HTTPAdapter):
-    def init_poolmanager(self, *args, **kwargs):
-        ctx = ssl_.create_urllib3_context()
-        try:
-            ctx.set_ciphers('DEFAULT@SECLEVEL=1')
-        except Exception:
-            pass
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        kwargs['ssl_context'] = ctx
-        return super(LegacySSLAdapter, self).init_poolmanager(*args, **kwargs)
-
-# إعداد جلسة التصفح
 session = requests.Session()
-adapter = LegacySSLAdapter()
-session.mount('https://', adapter)
-session.mount('http://', adapter)
-session.verify = False
-
-try:
-    requests.packages.urllib3.disable_warnings()
-except Exception:
-    pass
-
 session.headers.update({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-    'Accept-Language': 'ar,en;q=0.9',
-    'Connection': 'keep-alive'
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'ar,en;q=0.9'
 })
+
+def fetch_html_content(target_url):
+    # محاولة الاتصال المباشر أولاً
+    try:
+        res = session.get(target_url, timeout=12)
+        if res.status_code == 200 and len(res.text) > 500:
+            res.encoding = 'utf-8'
+            return res.text
+    except Exception:
+        pass
+
+    # إذا رفض السيرفر الاتصال المباشر، يتم الجلب عبر وسيط لتجاوز الجدار الناري
+    proxies = [
+        f"https://api.allorigins.win/raw?url={quote(target_url)}",
+        f"https://corsproxy.io/?{quote(target_url, safe='')}"
+    ]
+
+    for p_url in proxies:
+        try:
+            res = session.get(p_url, timeout=20)
+            if res.status_code == 200 and len(res.text) > 500:
+                res.encoding = 'utf-8'
+                return res.text
+        except Exception:
+            continue
+            
+    return None
 
 def scrape_announcements(source_name, target_url, base_domain, prefix):
     items = []
@@ -177,9 +176,12 @@ def scrape_announcements(source_name, target_url, base_domain, prefix):
     ]
     
     try:
-        res = session.get(target_url, timeout=20)
-        res.encoding = 'utf-8'
-        soup = BeautifulSoup(res.text, 'html.parser')
+        html_text = fetch_html_content(target_url)
+        if not html_text:
+            print(f"تعذر جلب محتوى {source_name} (محجوب من السيرفر)", flush=True)
+            return items
+
+        soup = BeautifulSoup(html_text, 'html.parser')
         
         for a in soup.find_all('a', href=True):
             href = a['href'].strip()
