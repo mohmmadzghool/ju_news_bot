@@ -5,6 +5,21 @@ import html
 import requests
 from bs4 import BeautifulSoup
 import hashlib
+import time
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+# تشغيل خادم ويب وهمي بسيط لإرضاء فحص Render المجاني
+class SimpleHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"JU Bot Worker is running 24/7!")
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
+    server.serve_forever()
 
 HISTORY_FILE = "sent_news_history.json"
 
@@ -48,11 +63,7 @@ def send_telegram_message(source, title, link):
     
     try:
         res = requests.post(url, json=payload, timeout=15)
-        if res.status_code == 200:
-            return True
-        else:
-            print(f"خطأ تيليجرام في إعلان الموقع: {res.text}", flush=True)
-            return False
+        return res.status_code == 200
     except Exception as e:
         print(f"فشل إرسال الإشعار لتيليجرام: {e}", flush=True)
         return False
@@ -74,7 +85,6 @@ def send_tg_channel_post(channel_name, post_text, post_link, image_url=None):
         f"🔗 <a href='{post_link}'>رابط المنشور الأصلي</a>"
     )
 
-    # محاولة إرسال الصورة إن وجدت
     if image_url:
         try:
             url_photo = f"https://api.telegram.org/bot{token}/sendPhoto"
@@ -102,7 +112,6 @@ def send_tg_channel_post(channel_name, post_text, post_link, image_url=None):
         except Exception:
             pass
 
-    # إذا تعذر تحميل الصورة يتم إرسال النص فوراً بدلاً من إسقاط المنشور
     try:
         url_msg = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = {
@@ -117,20 +126,25 @@ def send_tg_channel_post(channel_name, post_text, post_link, image_url=None):
         print(f"فشل إرسال المنشور: {e}", flush=True)
         return False
 
+# جلسة تصفح مع Headers تحاكي متصفح حقيقي بالكامل
+session = requests.Session()
+session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1'
+})
+
 def scrape_announcements(source_name, target_url, base_domain, prefix):
     items = []
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36',
-        'Accept-Language': 'ar,en;q=0.9'
-    }
-    
     ignore_texts = [
         "عرض الكل", "المزيد", "الصفحة الرئيسية", "رجوع", "السابق", "التالي", 
         "الرئيسية", "اتصل بنا", "عن الجامعة", "Home", "Back", "View All"
     ]
     
     try:
-        res = requests.get(target_url, headers=headers, timeout=20)
+        res = session.get(target_url, timeout=20)
         res.encoding = 'utf-8'
         soup = BeautifulSoup(res.text, 'html.parser')
         
@@ -228,15 +242,11 @@ def scrape_telegram_channels():
     ]
     
     posts = []
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept-Language': 'ar,en;q=0.9'
-    }
     
     for ch in channels:
         url = f"https://t.me/s/{ch['username']}"
         try:
-            res = requests.get(url, headers=headers, timeout=20)
+            res = session.get(url, timeout=20)
             if res.status_code != 200:
                 continue
                 
@@ -343,12 +353,14 @@ def main():
     print("==================================================", flush=True)
 
 if __name__ == "__main__":
-    import time
-    print("Bot worker started...")
+    # تشغيل خادم الويب في خلفية منفصلة لإرضاء Render
+    web_thread = threading.Thread(target=run_web_server, daemon=True)
+    web_thread.start()
+    
+    print("Bot worker started...", flush=True)
     while True:
         try:
             main()
         except Exception as e:
-            print(f"Error during execution: {e}")
-        # فحص دوري كل دقيقة واحدة (60 ثانية)
+            print(f"Error during execution: {e}", flush=True)
         time.sleep(60)
