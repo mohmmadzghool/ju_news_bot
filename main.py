@@ -10,7 +10,7 @@ import threading
 from urllib.parse import quote
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# خادم ويب وهمي خفيف جداً لمنع خطأ output too large في cron-job.org
+# خادم ويب وهمي خفيف جداً لمنع أخطاء cron-job.org
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         response_body = b"OK"
@@ -41,14 +41,22 @@ def load_history():
     if os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                return set(json.load(f))
         except Exception:
-            return []
-    return []
+            return set()
+    return set()
 
-def save_history(history):
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
+def save_history(history_set):
+    try:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(list(history_set)[-3000:], f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"خطأ حفظ السجل: {e}", flush=True)
+
+def generate_hash(text):
+    """توليد بصمة فريدة لنص الخبر لمنع تكراره حتى لو اختلف المصدر أو الرابط"""
+    clean = "".join(text.split())[:120]
+    return hashlib.md5(clean.encode('utf-8')).hexdigest()
 
 def send_telegram_message(source, title, link):
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -182,7 +190,6 @@ def scrape_announcements(source_name, target_url, base_domain, prefix):
     try:
         html_text = fetch_html_content(target_url)
         if not html_text:
-            print(f"تعذر جلب محتوى {source_name} (محجوب من السيرفر)", flush=True)
             return items
 
         soup = BeautifulSoup(html_text, 'html.parser')
@@ -205,74 +212,40 @@ def scrape_announcements(source_name, target_url, base_domain, prefix):
                     link = f"{base_domain.rstrip('/')}/{href.lstrip('/')}"
                     
                 item_id = f"{prefix}_" + hashlib.md5((link + text).encode('utf-8')).hexdigest()[:12]
+                content_hash = generate_hash(text)
                 
-                if not any(i['id'] == item_id for i in items):
-                    items.append({
-                        'source': source_name,
-                        'id': item_id,
-                        'title': text,
-                        'link': link
-                    })
+                items.append({
+                    'source': source_name,
+                    'id': item_id,
+                    'content_hash': content_hash,
+                    'title': text,
+                    'link': link
+                })
     except Exception as e:
         print(f"خطأ أثناء فحص {source_name}: {e}", flush=True)
         
     return items[:5]
 
 def fetch_ju_official_ann():
-    return scrape_announcements(
-        "إعلانات الجامعة الأردنية",
-        "https://www.ju.edu.jo/ar/arabic/Lists/Announcements/All_Ann.aspx",
-        "https://www.ju.edu.jo",
-        "ju_ann"
-    )
+    return scrape_announcements("إعلانات الجامعة الأردنية", "https://www.ju.edu.jo/ar/arabic/Lists/Announcements/All_Ann.aspx", "https://www.ju.edu.jo", "ju_ann")
 
 def fetch_reg_bachelor_ann():
-    return scrape_announcements(
-        "القبول والتسجيل (بكالوريوس)",
-        "https://registration.ju.edu.jo/Lists/UnitAnnouncements/Reg_AllAnn.aspx",
-        "https://registration.ju.edu.jo",
-        "reg_bach"
-    )
+    return scrape_announcements("القبول والتسجيل (بكالوريوس)", "https://registration.ju.edu.jo/Lists/UnitAnnouncements/Reg_AllAnn.aspx", "https://registration.ju.edu.jo", "reg_bach")
 
 def fetch_grad_studies_ann():
-    return scrape_announcements(
-        "كلية الدراسات العليا",
-        "https://graduatestudies.ju.edu.jo/ar/arabic/Lists/AcademicNews/School_AllAnn.aspx",
-        "https://graduatestudies.ju.edu.jo",
-        "grad_ann"
-    )
+    return scrape_announcements("كلية الدراسات العليا", "https://graduatestudies.ju.edu.jo/ar/arabic/Lists/AcademicNews/School_AllAnn.aspx", "https://graduatestudies.ju.edu.jo", "grad_ann")
 
 def fetch_student_affairs_ann():
-    return scrape_announcements(
-        "عمادة شؤون الطلبة",
-        "https://studentaffairs.ju.edu.jo/Lists/Announcements/School_AllAnn.aspx",
-        "https://studentaffairs.ju.edu.jo",
-        "sa_ann"
-    )
+    return scrape_announcements("عمادة شؤون الطلبة", "https://studentaffairs.ju.edu.jo/Lists/Announcements/School_AllAnn.aspx", "https://studentaffairs.ju.edu.jo", "sa_ann")
 
 def fetch_community_service_ann():
-    return scrape_announcements(
-        "مركز التنمية وخدمة المجتمع",
-        "https://lcndc.ju.edu.jo/ar/arabic/Lists/Announcements/AllAnn_new.aspx",
-        "https://lcndc.ju.edu.jo",
-        "lcndc_ann"
-    )
+    return scrape_announcements("مركز التنمية وخدمة المجتمع", "https://lcndc.ju.edu.jo/ar/arabic/Lists/Announcements/AllAnn_new.aspx", "https://lcndc.ju.edu.jo", "lcndc_ann")
 
 def fetch_finance_ann():
-    return scrape_announcements(
-        "الوحدة المالية",
-        "https://units.ju.edu.jo/ar/finance/Lists/Announcements/School_AllAnn.aspx",
-        "https://units.ju.edu.jo",
-        "fin_ann"
-    )
+    return scrape_announcements("الوحدة المالية", "https://units.ju.edu.jo/ar/finance/Lists/Announcements/School_AllAnn.aspx", "https://units.ju.edu.jo", "fin_ann")
 
 def fetch_languages_center_ann():
-    return scrape_announcements(
-        "مركز اللغات",
-        "https://centers.ju.edu.jo/ar/ujlc/Lists/Announcements/School_AllAnn.aspx",
-        "https://centers.ju.edu.jo",
-        "lang_ann"
-    )
+    return scrape_announcements("مركز اللغات", "https://centers.ju.edu.jo/ar/ujlc/Lists/Announcements/School_AllAnn.aspx", "https://centers.ju.edu.jo", "lang_ann")
 
 def scrape_telegram_channels():
     channels = [
@@ -315,8 +288,11 @@ def scrape_telegram_channels():
                     continue
                     
                 post_id = f"tg_{data_post.replace('/', '_')}"
+                content_hash = generate_hash(post_text if post_text else post_id)
+                
                 posts.append({
                     "id": post_id,
+                    "content_hash": content_hash,
                     "channel_name": ch["name"],
                     "text": post_text,
                     "image_url": image_url,
@@ -333,8 +309,7 @@ def main():
     print("...بدء فحص صفحات الإعلانات الرسمية وقنوات تيليجرام...", flush=True)
     print("==================================================", flush=True)
     
-    history = load_history()
-    new_history = list(history)
+    history_set = load_history()
     sent_count = 0
 
     all_current_announcements = []
@@ -357,57 +332,58 @@ def main():
             print(f"خطأ أثناء تشغيل الفاحص: {e}", flush=True)
             
     print(f"إجمالي إعلانات المواقع المفحوصة: {len(all_current_announcements)}", flush=True)
+    tg_posts = scrape_telegram_channels()
+    print(f"إجمالي منشورات التيليجرام المفحوصة: {len(tg_posts)}", flush=True)
     
-    # حماية من تكرار الإعلانات القديمة إذا تمت إعادة تشغيل السيرفر وكان السجل فارغاً
-    if first_run and len(history) == 0:
-        print("[تهيئة أولى] جاري حفظ الإعلانات والمنشورات الحالية في السجل لمنع تكرار القديم...", flush=True)
+    # حماية التهيئة الأولى لمنع إرسال أي خبر قديم
+    if first_run and len(history_set) == 0:
+        print("[تهيئة أولى] جاري حفظ الأخبار الحالية لمنع الإرسال المكرر...", flush=True)
         for item in all_current_announcements:
-            if item.get("id"):
-                new_history.append(item["id"])
-        tg_posts = scrape_telegram_channels()
+            history_set.add(item["id"])
+            history_set.add(item["content_hash"])
         for post in tg_posts:
-            if post.get("id"):
-                new_history.append(post["id"])
-        save_history(new_history)
+            history_set.add(post["id"])
+            history_set.add(post["content_hash"])
+        save_history(history_set)
         first_run = False
-        print("اكتملت التهيئة الأولى بنجاح! سيبدأ الإرسال فقط للأخبار الجديدة القادمة.", flush=True)
-        print("==================================================", flush=True)
+        print("اكتملت التهيئة بنجاح! سيتم إرسال المنشورات الجديدة فقط فور صدورها.", flush=True)
         return
 
     first_run = False
 
+    # فحص وإرسال إعلانات المواقع
     for item in all_current_announcements:
         item_id = item.get("id")
-        if item_id and item_id not in history:
+        c_hash = item.get("content_hash")
+        
+        # التأكد التام من عدم تكرار الـ ID أو نص الخبر نفسه
+        if item_id not in history_set and c_hash not in history_set:
             print(f"-> [إعلان موقع جديد] {item['source']}: {item['title'][:60]}...", flush=True)
             if send_telegram_message(item['source'], item['title'], item['link']):
-                print("   (تم الإرسال لتيليجرام)", flush=True)
-                new_history.append(item_id)
+                print("   (تم الإرسال لتيليجرام بنجاح)", flush=True)
+                history_set.add(item_id)
+                history_set.add(c_hash)
+                save_history(history_set)
                 sent_count += 1
-            else:
-                print("   [فشل الإرسال - لن يتم الحفظ لإعادة المحاولة]", flush=True)
+                time.sleep(2)
 
-    tg_posts = scrape_telegram_channels()
-    print(f"إجمالي منشورات التيليجرام المفحوصة: {len(tg_posts)}", flush=True)
-    
+    # فحص وإرسال منشورات التيليجرام
     for post in tg_posts:
         post_id = post.get("id")
-        if post_id and post_id not in history:
+        c_hash = post.get("content_hash")
+        
+        if post_id not in history_set and c_hash not in history_set:
             print(f"-> [منشور تيليجرام جديد] {post['channel_name']}: {post['text'][:50]}...", flush=True)
             if send_tg_channel_post(post["channel_name"], post["text"], post["link"], post.get("image_url")):
-                print("   (تم الإرسال لتيليجرام)", flush=True)
-                new_history.append(post_id)
+                print("   (تم الإرسال لتيليجرام بنجاح)", flush=True)
+                history_set.add(post_id)
+                history_set.add(c_hash)
+                save_history(history_set)
                 sent_count += 1
-            else:
-                print("   [فشل الإرسال - لن يتم الحفظ لإعادة المحاولة]", flush=True)
+                time.sleep(2)
                 
-    if len(new_history) > 2000:
-        new_history = new_history[-2000:]
-        
-    save_history(new_history)
-    
     print("==================================================", flush=True)
-    print(f"اكتمل الفحص بنجاح! المنشورات والإعلانات الجديدة المرسلة: {sent_count}", flush=True)
+    print(f"اكتمل الفحص! المنشورات الجديدة المرسلة: {sent_count}", flush=True)
     print("==================================================", flush=True)
 
 if __name__ == "__main__":
