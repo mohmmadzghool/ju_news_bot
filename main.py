@@ -10,15 +10,20 @@ import threading
 from urllib.parse import quote
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# خادم ويب وهمي بسيط للرد على فحوصات Render
+# خادم ويب وهمي خفيف جداً لمنع خطأ output too large في cron-job.org
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        response_body = b"OK"
         self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(response_body)))
         self.end_headers()
-        self.wfile.write(b"JU Bot Worker is running 24/7!")
+        self.wfile.write(response_body)
 
     def do_HEAD(self):
         self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", "2")
         self.end_headers()
 
     def log_message(self, format, *args):
@@ -30,6 +35,7 @@ def run_web_server():
     server.serve_forever()
 
 HISTORY_FILE = "sent_news_history.json"
+first_run = True
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -142,7 +148,6 @@ session.headers.update({
 })
 
 def fetch_html_content(target_url):
-    # محاولة الاتصال المباشر أولاً
     try:
         res = session.get(target_url, timeout=12)
         if res.status_code == 200 and len(res.text) > 500:
@@ -151,7 +156,6 @@ def fetch_html_content(target_url):
     except Exception:
         pass
 
-    # إذا رفض السيرفر الاتصال المباشر، يتم الجلب عبر وسيط لتجاوز الجدار الناري
     proxies = [
         f"https://api.allorigins.win/raw?url={quote(target_url)}",
         f"https://corsproxy.io/?{quote(target_url, safe='')}"
@@ -324,6 +328,7 @@ def scrape_telegram_channels():
     return posts
 
 def main():
+    global first_run
     print("==================================================", flush=True)
     print("...بدء فحص صفحات الإعلانات الرسمية وقنوات تيليجرام...", flush=True)
     print("==================================================", flush=True)
@@ -353,6 +358,24 @@ def main():
             
     print(f"إجمالي إعلانات المواقع المفحوصة: {len(all_current_announcements)}", flush=True)
     
+    # حماية من تكرار الإعلانات القديمة إذا تمت إعادة تشغيل السيرفر وكان السجل فارغاً
+    if first_run and len(history) == 0:
+        print("[تهيئة أولى] جاري حفظ الإعلانات والمنشورات الحالية في السجل لمنع تكرار القديم...", flush=True)
+        for item in all_current_announcements:
+            if item.get("id"):
+                new_history.append(item["id"])
+        tg_posts = scrape_telegram_channels()
+        for post in tg_posts:
+            if post.get("id"):
+                new_history.append(post["id"])
+        save_history(new_history)
+        first_run = False
+        print("اكتملت التهيئة الأولى بنجاح! سيبدأ الإرسال فقط للأخبار الجديدة القادمة.", flush=True)
+        print("==================================================", flush=True)
+        return
+
+    first_run = False
+
     for item in all_current_announcements:
         item_id = item.get("id")
         if item_id and item_id not in history:
